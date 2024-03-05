@@ -1,0 +1,21 @@
+[package]
+name = "space_race"
+version = "0.1.0"
+edition = "2021"
+
+publish = false
+
+
+
+# Enable a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 1
+
+# Enable high optimizations for dependencies (incl. Bevy), but not for our code:
+[profile.dev.package."*"]
+opt-level = 3
+
+[dependencies]
+bevy = { version = "0.13.0", features = ["dynamic_linking", "file_watcher"]}
+bevy-parallax = "0.8.0"
+rand = "0.8.5"
