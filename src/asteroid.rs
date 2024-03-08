@@ -18,18 +18,14 @@ use rand::Rng;
 
 
 use crate::{
-    constants::*, 
-    ExplosionEvent, 
-    CollidableComponentNames, 
-    Collider, 
-    ColliderShape,
-    AnimationIndices
+    constants::*, AnimationIndices, AnimationTimer, CollidableComponentNames, Collider, ColliderShape, ExplosionEvent
 };
 
 #[derive(Component, Debug)]
 pub struct Asteroid {
-    // health: AsteroidHealth
-    pub exploding: bool
+    pub exploding: bool,
+    pub animation_indices: AnimationIndices,
+    pub animation_timer: AnimationTimer
 }
 
 
@@ -84,7 +80,6 @@ impl Asteroid {
         other_transform: &Transform, 
         other_name: &CollidableComponentNames
     ) -> bool {
-
         let asteroid_circle = BoundingCircle::new(
             asteroid_transform.translation.truncate(),
             ASTEROID_TRUE_WIDTH * ASTEROID_APPLIED_SCALE.x / 2.0
@@ -140,15 +135,16 @@ impl Asteroid {
 
 #[derive(Bundle)]
 pub struct AsteroidBundle {
-    asteroid: Asteroid,
-    sprite_bundle: SpriteBundle,
+    pub asteroid: Asteroid,
+    sprite_bundle: SpriteSheetBundle,
     collider: Collider,
 }
 
 impl AsteroidBundle {
     pub fn new(
         texture: Handle<Image>, 
-        camera_transform: &Transform 
+        camera_transform: &Transform ,
+        texture_atlas_layouts: &mut ResMut<Assets<TextureAtlasLayout>>
     ) -> AsteroidBundle {
 
         let camera_translation_y = camera_transform.translation.y;
@@ -156,66 +152,19 @@ impl AsteroidBundle {
         let x = rand::thread_rng().gen_range(0.0..=1.0) * WINDOW_WIDTH - WINDOW_WIDTH / 2.0;
         let y: f32 = camera_translation_y + WINDOW_HEIGHT / 2.0;
 
-        AsteroidBundle {
-            asteroid: Asteroid {
-                exploding: false,
-            },
-            sprite_bundle: SpriteBundle {
-                transform: Transform {
-                    translation: Vec2::new(x, y).extend(0.),
-                    scale: ASTEROID_APPLIED_SCALE,
-                    ..default()
-                },
-                sprite: Sprite {
-                    ..default()
-                },
-                texture: texture.clone(),
-                ..default()
-            },
-            collider: Collider {
-                name: CollidableComponentNames::Asteroid,
-                shape: ColliderShape::Circle
-            }
-        }
-    }
-}
-
-
-#[derive(Component, Deref, DerefMut)]
-pub struct AnimationTimer(Timer);
-
-#[derive(Bundle)]
-pub struct NewAsteroidBundle {
-    asteroid: Asteroid,
-    sprite_bundle: SpriteSheetBundle,
-    collider: Collider,
-    animation_indices: AnimationIndices,
-    animation_timer: AnimationTimer
-}
-
-impl NewAsteroidBundle {
-    pub fn new(
-        texture: Handle<Image>, 
-        camera_transform: &Transform ,
-        texture_atlas_layouts: &mut ResMut<Assets<TextureAtlasLayout>>
-    ) -> NewAsteroidBundle {
-
-        let camera_translation_y = camera_transform.translation.y;
-
-        let x = rand::thread_rng().gen_range(0.0..=1.0) * WINDOW_WIDTH - WINDOW_WIDTH / 2.0;
-        let y: f32 = camera_translation_y + WINDOW_HEIGHT / 2.0;
-
-        let asteroid_layout = TextureAtlasLayout::from_grid(Vec2::new(94.0, 94.0), 7, 1, None, None);
+        let asteroid_layout = TextureAtlasLayout::from_grid(Vec2::new(96.0, 96.0), 8, 1, None, None);
 
         let texture_atlas_layout = texture_atlas_layouts.add(asteroid_layout);
 
 
-        let animation_indices = AnimationIndices { first: 0, last: 6 };
+        let animation_indices = AnimationIndices { first: 0, last: 7 };
 
 
-        NewAsteroidBundle {
+        AsteroidBundle {
             asteroid: Asteroid {
                 exploding: false,
+                animation_indices,
+                animation_timer: AnimationTimer(Timer::from_seconds(0.12, TimerMode::Once))
             },
             sprite_bundle: SpriteSheetBundle {
                 transform: Transform {
@@ -228,7 +177,7 @@ impl NewAsteroidBundle {
                 },
                 atlas: TextureAtlas {
                     layout: texture_atlas_layout,
-                    index: animation_indices.first
+                    index: 0,
                 },
                 texture: texture.clone(),
                 ..default()
@@ -236,9 +185,7 @@ impl NewAsteroidBundle {
             collider: Collider {
                 name: CollidableComponentNames::Asteroid,
                 shape: ColliderShape::Circle
-            },
-            animation_indices,
-            animation_timer: AnimationTimer(Timer::from_seconds(0.1, TimerMode::Once))
+            }
         }
     }
 }

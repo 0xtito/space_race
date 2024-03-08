@@ -66,10 +66,27 @@ enum ExplosionAnimations {
     AsteroidExplosion
 }
 
+enum AnimatableAsset {
+    Rocket,
+    Asteroid
+}
+
+#[derive(Component)]
+struct PlayAnimation(AnimatableAsset);
+
+#[derive(Component, Debug, Deref, DerefMut)]
+pub struct AnimationTimer(Timer);
+
 #[derive(Component, Debug)]
 pub struct AnimationIndices {
     first: usize,
     last: usize,
+}
+
+#[derive(Component, Debug)]
+struct AnimationProperties {
+    indices: AnimationIndices,
+    timer: AnimationTimer
 }
 
 #[derive(Event)]
@@ -140,14 +157,17 @@ fn main() {
         .add_plugins(DefaultPlugins.set( WindowPlugin {
             primary_window: Some(primary_window),
             ..default()
-        }).set(ImagePlugin::default_nearest()) )
-        .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
+        }).set(ImagePlugin::default_nearest()))
+        // .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
         .insert_resource(grid)
         .insert_resource(game_state)
         .insert_resource(game_difficulty)
-        .add_event::<ExplosionEvent>() 
-        .add_systems(Update, (bevy::window::close_on_esc,player_asteroid_explode))
-        .add_systems(Startup, (setup, load_in_background, initiate_explosion))
+        .add_event::<ExplosionEvent>()
+        // .add_systems(Startup, (setup, )) 
+        .add_systems(Startup, setup) 
+        // .add_systems(Update, (bevy::window::close_on_esc))
+        .add_systems(Update, (bevy::window::close_on_esc, player_asteroid_explode, play_rocket_animation))
+        // .add_systems(FixedUpdate, (play_rocket_animation, player_asteroid_explode))
         .add_systems(FixedUpdate, (
             ship_movement, 
             update_kinematic_objects,
@@ -156,7 +176,7 @@ fn main() {
             update_rockets.after(check_if_firing),
             update_grid,
             collision_checks.after(update_grid),
-            initiate_explosion.after(collision_checks),
+            explosion_event_listener.after(collision_checks),
         ).chain())
         .run();
 }
@@ -170,6 +190,8 @@ fn setup(
     let camera_bundle = Camera2dBundle::default();
 
     let camera_transform = camera_bundle.transform.clone();
+
+    load_in_background(&mut commands, &asset_server);
 
     // Camera setup
     commands
@@ -196,7 +218,7 @@ fn setup(
 
     let asteroid_sprite_texture: Handle<Image> = asset_server.load("enemys/asteroid_explosion_sprite.png");
 
-    commands.spawn(NewAsteroidBundle::new(
+    commands.spawn(AsteroidBundle::new(
         asteroid_sprite_texture,
         &camera_transform,
         &mut texture_atlas_layouts
@@ -262,8 +284,6 @@ fn collision_checks(
     // let mut raw_grid = grid.as_deref_mut();
     let grid = res_grid.as_mut();
 
-    // println!("grid: {:#?}", grid);
-
     for ( cur_entity, cur_transform, mut asteroid, mut rocket ) in &mut collidable_query {
         let relative_position = cur_transform.translation - camera_translation;
 
@@ -284,62 +304,57 @@ fn collision_checks(
                 let neighbor_x = (grid_x as i32 + dx) as usize;
                 let neighbor_y  = (grid_y as i32 + dy) as usize;
 
-                // Not checking current cell 
-                if dx == 0 && dy == 0 { continue; }
-
                 if neighbor_x > 8 || neighbor_y > 14  { continue; }
                 
-                for (neighbor_entity, neighbor_name, mut transform) in &grid[neighbor_x][neighbor_y] {
+                for (neighbor_entity, neighbor_name, mut neighbor_transform) in &grid[neighbor_x][neighbor_y] {
 
                     if let Some(ref mut asteroid) = asteroid {
+
                         if *neighbor_name == CollidableComponentNames::Asteroid {
                             continue;
                         }
 
-                        // if asteroid.exploding { return; }
+                        if asteroid.exploding { return; }
+
+
 
                         let collided: bool = asteroid.check_collision(
-                            &transform, cur_transform, neighbor_name
+                            &cur_transform, &neighbor_transform, neighbor_name
                         );
 
-                        match collided {
-                            true => {
-                                // println!("Asteroid collided with {:?}!", neighbor_name);
+                        if !collided { continue; }
 
-                                if *neighbor_name == CollidableComponentNames::Ship {
+                        if *neighbor_name == CollidableComponentNames::Ship {
 
-                                    ship.invulnerable = true;
+                            ship.invulnerable = true;
 
-                                    ship.take_damage();
+                            ship.take_damage();
 
-                                    let events: [ExplosionEvent; 2] = [
-                                        ExplosionEvent {
-                                            explosion_type: ExplosionAnimations::AsteroidExplosion,
-                                            entity: cur_entity
-                                        },
-                                        ExplosionEvent {
-                                            explosion_type: ExplosionAnimations::ShipExplosion,
-                                            entity: *neighbor_entity
-                                        }
-                                    ];
+                            let events: [ExplosionEvent; 2] = [
+                                ExplosionEvent {
+                                    explosion_type: ExplosionAnimations::AsteroidExplosion,
+                                    entity: cur_entity
+                                },
+                                ExplosionEvent {
+                                    explosion_type: ExplosionAnimations::ShipExplosion,
+                                    entity: *neighbor_entity
+                                }
+                            ];
 
-                                    collision_events.send_batch(events);
+                            collision_events.send_batch(events);
 
-                                } else {
+                        } else {
 
-                                    collision_events.send(
-                                        ExplosionEvent {
-                                            explosion_type: ExplosionAnimations::AsteroidExplosion,
-                                            entity: cur_entity
-                                        }
-                                    );
+                            println!("Asteroid collided with Rocket");
 
-                                }                                
-                            },
-                            false => {
-                                continue;
-                            }
-                        }
+                            collision_events.send(
+                                ExplosionEvent {
+                                    explosion_type: ExplosionAnimations::AsteroidExplosion,
+                                    entity: cur_entity
+                                }
+                            );
+
+                        }                                
                         
                     }
 
@@ -349,18 +364,17 @@ fn collision_checks(
                         if *neighbor_name == CollidableComponentNames::Asteroid {
 
                             let collided = rocket.check_collision(
-                                &transform,
-                                cur_transform,
+                                &cur_transform,
+                                &neighbor_transform,
                                 neighbor_name
                             );
 
+                            // if !collided { continue; }
+
                            if collided {
+                                println!("Rocket collided with Asteroid");
                                 rocket.hit_target = true;
                            } 
-
-                            
-
-                            // println!("cur entity Rocket possibly collided with {:?}", neighbor_name);
                         };
                     }
                 }
@@ -421,76 +435,46 @@ fn update_asteroids(
         } 
     }
 
-
-
     // Spawn another asteriod depending on difficulty
     if asteroid_query.is_empty() {
 
         let game_difficulty = game_difficulty_res.as_ref();
 
-        let asteroid_texture: Handle<Image> = asset_server_res.load("enemys/asteroid_base.png");
-
-        let mut asteroid_sprite_texture: Handle<Image> = asset_server_res.load("enemys/asteroid_explosion_sprite.png");
+        let asteroid_sprite_texture: Handle<Image> = asset_server_res.load("enemys/asteroid_explosion_sprite.png");
 
 
         match *game_difficulty {
             GameDifficulty::Easy => {
 
-                commands.spawn_batch([
-                    AsteroidBundle::new(asteroid_texture, camera_transform)
-                ])
-
-            },
-            GameDifficulty::Medium => {
-
-                commands.spawn_batch([
-                    AsteroidBundle::new(asteroid_texture.clone(), camera_transform),
-                    AsteroidBundle::new(asteroid_texture, camera_transform)
-                ])
-
-            }, 
-            GameDifficulty::Hard => {
-
-                let asteroid_sprite_texture1: Handle<Image> = asset_server_res.load("enemys/asteroid_explosion_sprite.png");
-
-                let asteroid_sprite_texture2: Handle<Image> = asset_server_res.load("enemys/asteroid_explosion_sprite.png");
-
-                let asteroid_sprite_texture3: Handle<Image> = asset_server_res.load("enemys/asteroid_explosion_sprite.png");
-
-
-
-
-                // commands.spawn_batch([
-                //     AsteroidBundle::new(asteroid_texture.clone(),camera_transform),
-                //     AsteroidBundle::new(asteroid_texture.clone(), camera_transform),
-                //     AsteroidBundle::new(asteroid_texture, camera_transform)
-                // ]);
-
                 commands.spawn(
-                    NewAsteroidBundle::new(
+                    AsteroidBundle::new(
                         asteroid_sprite_texture,
                         camera_transform,
                         &mut texture_atlas_layouts
                     )
                 );
 
-                // commands.spawn_batch([
-                //     NewAsteroidBundle::new(
-                //         asteroid_sprite_texture1,
-                //         camera_transform,
-                //         &mut texture_atlas_layouts
-                //     ),
-                //     NewAsteroidBundle::new(
-                //         asteroid_sprite_texture2,
-                //         camera_transform,
-                //         &mut texture_atlas_layouts
-                //     ),
-                //     NewAsteroidBundle::new(
-                //         asteroid_sprite_texture3,
-                //         camera_transform,
-                //         &mut texture_atlas_layouts
-                //     )
-                // ]);
+            },
+            GameDifficulty::Medium => {
+
+                commands.spawn(
+                    AsteroidBundle::new(
+                        asteroid_sprite_texture,
+                        camera_transform,
+                        &mut texture_atlas_layouts
+                    )
+                );
+
+            }, 
+            GameDifficulty::Hard => {
+
+                commands.spawn(
+                    AsteroidBundle::new(
+                        asteroid_sprite_texture,
+                        camera_transform,
+                        &mut texture_atlas_layouts
+                    )
+                );
 
             }
         }
@@ -630,14 +614,13 @@ fn check_if_firing(
 
 }
 
-fn initiate_explosion(
+fn explosion_event_listener(
     mut commands: Commands,
     mut collision_events: EventReader<ExplosionEvent>,
     mut ship_query: Query<&mut Ship>,
     mut asteroid_query: Query<(Entity, &mut Asteroid), Without<AnimationTimer>>,
     mut game_state_res: ResMut<GameState>,
 )  {
-
 
     if !collision_events.is_empty() {
 
@@ -664,6 +647,8 @@ fn initiate_explosion(
 
                         println!("*asteroid explosion*");
 
+                        commands.entity(asteroid_entity).insert(PlayAnimation(AnimatableAsset::Asteroid));
+
                         asteroid.exploding = true;
                     }
                 }
@@ -675,7 +660,7 @@ fn initiate_explosion(
 
 fn player_asteroid_explode(
     mut commands: Commands,
-    mut asteroid_query: Query<(&AnimationIndices, &mut AnimationTimer, &mut TextureAtlas, &mut Asteroid, Entity)>,
+    mut asteroid_query: Query<(Entity, &mut Asteroid, &mut TextureAtlas), With<PlayAnimation>>,
     game_state_res: Res<GameState>,
     time: Res<Time>,
 ) {
@@ -686,27 +671,60 @@ fn player_asteroid_explode(
         return;
     }
 
-
-    for (_indices, mut timer, mut atlas, asteroid, entity ) in asteroid_query.iter_mut() {
+    for (mut entity, mut asteroid, mut atlas ) in asteroid_query.iter_mut() {
 
         if !asteroid.exploding { return };
-
-        timer.tick(time.delta());
         
-        if timer.just_finished() {
-            commands.entity(entity).despawn();
+        asteroid.animation_timer.tick(time.delta());
+
+        if asteroid.animation_timer.just_finished()  {
+            commands.entity(entity).despawn();       
+        } else if atlas.index == asteroid.animation_indices.last  {
+            atlas.index = atlas.index;
         } else {
             atlas.index = atlas.index + 1;
-        };
-
+        }
     }
 }
 
+fn play_rocket_animation(
+    mut rocket_query: Query<(Entity, &mut Rocket, &mut TextureAtlas), With<PlayAnimation>>,
+    game_state_res: Res<GameState>,
+    time: Res<Time>,
+) {
+
+    let game_state = game_state_res.as_ref();
+
+    if *game_state == GameState::GameOver || *game_state == GameState::Paused {
+        return;
+    }
+
+    for (entity, mut rocket, mut atlas) in rocket_query.iter_mut() {
+
+        if rocket.hit_target { continue; }
+
+        // let time_remaining = rocket.animation_timer.remaining_secs();
+        // let delta = time.delta();
+
+        rocket.animation_timer.tick(time.delta());
+
+
+        if rocket.animation_timer.finished() {
+
+        // atlas.index += 1;
+            atlas.index = if atlas.index == rocket.animation_indices.last {
+                rocket.animation_indices.first
+            } else {
+                atlas.index + 1
+            };
+        }
+    };
+
+}
+
 fn load_in_background(
-    mut commands:  Commands, 
-    // backgrounds: Vec<Handle<Image>>,
-    asset_server: Res<AssetServer>,
-    // repeat: u8,
+    commands: &mut Commands, 
+    asset_server: &Res<AssetServer>,
 ) {
 
     // Background setup
@@ -721,7 +739,7 @@ fn load_in_background(
     ];
     
 
-    for i in 0..4 {
+    for i in 0..3 {
         // println!("{}", i);
         for bg_texture in backgrounds.iter() {            
             commands.spawn((SpriteBundle {

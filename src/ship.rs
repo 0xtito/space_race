@@ -9,7 +9,10 @@ use crate::{
     CollidableComponentNames,
     Velocity,
     constants::*,
-    AnimationIndices
+    AnimationIndices,
+    AnimationTimer,
+    AnimationProperties,
+    PlayAnimation
 };
 
 #[derive(PartialEq)]
@@ -30,7 +33,7 @@ pub struct Ship {
 
 #[derive(Event)]
 struct RocketAnimation{
-    entity: Entity
+    entity: Entity,
 }
 
 
@@ -40,7 +43,7 @@ impl Ship {
         commands: &mut Commands,
         ship_transform: &Transform,
         asset_server: Res<AssetServer>, 
-        mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>
+        mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
     ) {
 
         // Means you can now fire the rocket
@@ -53,32 +56,34 @@ impl Ship {
 
             self.cooldown_length = 1.0;
 
-            commands.spawn(rocket_bundle);
+            commands.spawn(rocket_bundle).insert(PlayAnimation(crate::AnimatableAsset::Rocket));
         }
         
     }
     pub fn take_damage(&mut self)  {
 
         // Testing
-        self.health = ShipHealth::Empty;
+        // self.health = ShipHealth::Empty;
 
         
 
-        // match self.health {
-        //     AsteroidHealth::Full => {
-        //         self.health = AsteroidHealth::Damaged;
-        //     },
-        //     AsteroidHealth::Damaged => {
-        //         self.health = AsteroidHealth::VeryDamaged;
-        //     },
-        //     AsteroidHealth::VeryDamaged => {
-        //         self.health = AsteroidHealth::Empty;
+        match self.health {
+            ShipHealth::Full => {
+                self.health = ShipHealth::Damaged;
+
+
+            },
+            ShipHealth::Damaged => {
+                self.health = ShipHealth::VeryDamaged;
+            },
+            ShipHealth::VeryDamaged => {
+                self.health = ShipHealth::Empty;
                 
-        //     },
-        //     AsteroidHealth::Empty => {
-        //         self.health = AsteroidHealth::Empty;
-        //     },
-        // }
+            },
+            ShipHealth::Empty => {
+                self.health = ShipHealth::Empty;
+            },
+        }
 
     }
 }
@@ -132,6 +137,7 @@ impl ShipBundle {
 #[derive(Component, Debug)]
 pub struct Rocket {
     pub animation_indices: AnimationIndices,
+    pub animation_timer: AnimationTimer,
     pub hit_target: bool
 }
 
@@ -172,8 +178,6 @@ impl Rocket {
                     false
                 }
             }
-
-
         } else { false }
 
     }
@@ -196,7 +200,7 @@ impl RocketBundle {
     ) -> RocketBundle {
         let rocket_texture = asset_server.load("weapons/rocket_sprites_3.png");
 
-        let layout = TextureAtlasLayout::from_grid(Vec2::new(32.0, 32.0), 3, 1, Some(Vec2::new(0., 0.)), Some(Vec2::new(0., 0.)));
+        let layout = TextureAtlasLayout::from_grid(Vec2::new(32.0, 32.0), 3, 1, None, None);
 
         let texture_atlas_layout = texture_atlas_layouts.add(layout);
 
@@ -204,7 +208,7 @@ impl RocketBundle {
 
         let animation_indices = AnimationIndices {
             first: 0,
-            last: 3
+            last: 2
         };
 
 
@@ -213,11 +217,11 @@ impl RocketBundle {
             sprite_bundle: SpriteBundle {
                 transform: Transform {
                     translation: spawn_location.translation.clone(),
-                    // scale: ROCKET_APPLIED_SCALE,
+                    scale: ROCKET_APPLIED_SCALE,
                     ..default()
                 },
                 sprite: Sprite {
-                    custom_size: Some(ROCKET_SPEC),
+                    // custom_size: Some(ROCKET_SPEC),
                     ..default()
                 }, 
                 texture: rocket_texture,
@@ -225,17 +229,17 @@ impl RocketBundle {
             },
             texture_atlas: TextureAtlas {
                 layout: texture_atlas_layout,
-                index: animation_indices.first
+                index: 0
             },
-            // collider: Collider(ColliderShape::Rectangle),
             collider: Collider {
                 name: CollidableComponentNames::Rocket,
                 shape: ColliderShape::Rectangle
             },
             rocket: Rocket {
                 animation_indices,
+                animation_timer: AnimationTimer(Timer::from_seconds(0.1, TimerMode::Repeating)),
                 hit_target: false
-            }
+            },
         }
     }
 }
