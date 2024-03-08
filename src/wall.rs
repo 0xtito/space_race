@@ -4,7 +4,7 @@ use bevy::{
 
 use crate::{
     constants::*,
-    Collider, ColliderShape
+    // Collider, ColliderShape
 };
 
 #[derive(Component)]
@@ -19,6 +19,7 @@ pub enum GameWall {
 
 impl GameWall {
     pub fn position(&self) -> Vec2 {
+
         match self {
             GameWall::Top => Vec2::new(0., TOP_WALL),
             GameWall::Bottom => Vec2::new(0., BOTTOM_WALL),
@@ -48,7 +49,7 @@ impl GameWall {
 #[derive(Bundle)]
 pub struct WallBundle {
     sprite_bundle: SpriteBundle,
-    collider: Collider,
+    // collider: Collider,
 }
 
 impl WallBundle {
@@ -67,7 +68,6 @@ impl WallBundle {
                 },
                 ..default()
             },
-            collider: Collider(ColliderShape::Rectangle)
         }
     }
 }

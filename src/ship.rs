@@ -1,19 +1,18 @@
 use bevy::{
-    math::{vec3, Vec2}, 
+    math::{bounding::{Aabb2d, BoundingCircle, IntersectsVolume}, vec3, Vec2}, 
     prelude::*
 };
 
 use crate::{
     Collider, 
     ColliderShape, 
-    Velocity, 
-    ROCKET_SPEC, 
-    SHIP_PADDING, 
-    SHIP_SPEC, 
-    TOP_WALL, 
-    WALL_THICKNESS
+    CollidableComponentNames,
+    Velocity,
+    constants::*,
+    AnimationIndices
 };
 
+#[derive(PartialEq)]
 pub enum ShipHealth {
     Full,
     Damaged,
@@ -24,9 +23,16 @@ pub enum ShipHealth {
 #[derive(Component)]
 pub struct Ship {
     pub health: ShipHealth,
+    pub invulnerable: bool,
     pub cooldown_length: f32,
     pub velocity: Velocity
 }
+
+#[derive(Event)]
+struct RocketAnimation{
+    entity: Entity
+}
+
 
 impl Ship {
     pub fn fire_rocket(
@@ -51,6 +57,30 @@ impl Ship {
         }
         
     }
+    pub fn take_damage(&mut self)  {
+
+        // Testing
+        self.health = ShipHealth::Empty;
+
+        
+
+        // match self.health {
+        //     AsteroidHealth::Full => {
+        //         self.health = AsteroidHealth::Damaged;
+        //     },
+        //     AsteroidHealth::Damaged => {
+        //         self.health = AsteroidHealth::VeryDamaged;
+        //     },
+        //     AsteroidHealth::VeryDamaged => {
+        //         self.health = AsteroidHealth::Empty;
+                
+        //     },
+        //     AsteroidHealth::Empty => {
+        //         self.health = AsteroidHealth::Empty;
+        //     },
+        // }
+
+    }
 }
 
 #[derive(Bundle)]
@@ -64,14 +94,18 @@ impl ShipBundle {
 
     pub fn new(ship_texture: Handle<Image>) -> ShipBundle {
 
+
         ShipBundle {
             sprite_bundle: SpriteBundle {
                 transform: Transform {
                     translation: vec3(0.0, 0.0, 0.0),
+                    // scale: Vec2::new(SHIP_GAME_WIDTH / SHIP_TRUE_WIDTH, SHIP_GAME_HEIGHT / SHIP_TRUE_HEIGHT).extend(0.),
+                    scale: SHIP_APPLIED_SCALE,
                     ..default()
                 },
                 sprite: Sprite {
-                    custom_size: Some(SHIP_SPEC),
+                    // custom_size: Some(SHIP_SPEC),
+                    // color: Color::rgba(1.0, 0.0, 0.0, 0.5),
                     ..default()
                 }, 
                 texture: ship_texture,
@@ -79,25 +113,26 @@ impl ShipBundle {
             },
             ship: Ship {
                 health: ShipHealth::Full,
+                invulnerable: false,
                 cooldown_length: 1.0,
                 velocity: Velocity(Vec2::new(0., 0.))
             },
-            collider: Collider(ColliderShape::Circle),
-            
+            // collider: Collider(ColliderShape::Circle),
+            collider: Collider {
+                name: CollidableComponentNames::Ship,
+                shape: ColliderShape::Circle
+            }
         }
     }
 }
 
 
-#[derive(Component)]
-struct AnimationIndices {
-    first: usize,
-    last: usize,
-}
 
-#[derive(Component)]
+
+#[derive(Component, Debug)]
 pub struct Rocket {
-    animation_indices: AnimationIndices
+    pub animation_indices: AnimationIndices,
+    pub hit_target: bool
 }
 
 impl Rocket {
@@ -106,6 +141,41 @@ impl Rocket {
         let despawn_threshold: f32 = TOP_WALL + WALL_THICKNESS / 2.0 + SHIP_SPEC.y / 2.0 + SHIP_PADDING + camera_transform.translation.y;
 
         rocket_transform.translation.y > despawn_threshold 
+    }
+
+    pub fn check_collision(
+        &mut self, 
+        rocket_transform: &Transform, 
+        other_transform: &Transform, 
+        other_name: &CollidableComponentNames
+    ) -> bool {
+
+        let rocket_rectangle = Aabb2d::new(
+            rocket_transform.translation.truncate(),
+            rocket_transform.scale.truncate() / 2.0
+        );
+
+        if *other_name == CollidableComponentNames::Asteroid {
+
+            let asteroid_circle = BoundingCircle::new(
+                other_transform.translation.truncate(),
+                ASTEROID_TRUE_WIDTH * ASTEROID_APPLIED_SCALE.x / 2.0
+            );
+
+            match rocket_rectangle.intersects(&asteroid_circle) {
+                true => {
+
+                    
+                    true
+                },
+                false => {
+                    false
+                }
+            }
+
+
+        } else { false }
+
     }
 }
 
@@ -130,6 +200,8 @@ impl RocketBundle {
 
         let texture_atlas_layout = texture_atlas_layouts.add(layout);
 
+        // texture_atlas_layouts.ge
+
         let animation_indices = AnimationIndices {
             first: 0,
             last: 3
@@ -141,6 +213,7 @@ impl RocketBundle {
             sprite_bundle: SpriteBundle {
                 transform: Transform {
                     translation: spawn_location.translation.clone(),
+                    // scale: ROCKET_APPLIED_SCALE,
                     ..default()
                 },
                 sprite: Sprite {
@@ -154,9 +227,14 @@ impl RocketBundle {
                 layout: texture_atlas_layout,
                 index: animation_indices.first
             },
-            collider: Collider(ColliderShape::Rectangle),
+            // collider: Collider(ColliderShape::Rectangle),
+            collider: Collider {
+                name: CollidableComponentNames::Rocket,
+                shape: ColliderShape::Rectangle
+            },
             rocket: Rocket {
-                animation_indices
+                animation_indices,
+                hit_target: false
             }
         }
     }
