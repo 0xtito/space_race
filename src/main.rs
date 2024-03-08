@@ -63,12 +63,14 @@ enum SoundVariants {
 // #[derive(Event)]
 enum ExplosionAnimations {
     ShipExplosion,
-    AsteroidExplosion
+    AsteroidExplosion,
+    DamageToShip
 }
 
 enum AnimatableAsset {
     Rocket,
-    Asteroid
+    Asteroid,
+    Ship
 }
 
 #[derive(Component)]
@@ -163,11 +165,8 @@ fn main() {
         .insert_resource(game_state)
         .insert_resource(game_difficulty)
         .add_event::<ExplosionEvent>()
-        // .add_systems(Startup, (setup, )) 
         .add_systems(Startup, setup) 
-        // .add_systems(Update, (bevy::window::close_on_esc))
-        .add_systems(Update, (bevy::window::close_on_esc, player_asteroid_explode, play_rocket_animation))
-        // .add_systems(FixedUpdate, (play_rocket_animation, player_asteroid_explode))
+        .add_systems(Update, (bevy::window::close_on_esc, player_asteroid_explode, play_rocket_animation, play_ship_invulnerable_animation))
         .add_systems(FixedUpdate, (
             ship_movement, 
             update_kinematic_objects,
@@ -205,9 +204,13 @@ fn setup(
         );
 
     // Spawn Ship
-    let ship_texture = asset_server.load("ship/ship_full.png");
+    // let ship_texture = asset_server.load("ship/ship_full.png");
+    let ship_texture = asset_server.load("ship/ship_spritesheet_empty_space.png");
     
-    commands.spawn(ShipBundle::new(ship_texture));
+    commands.spawn(
+        ShipBundle::new(ship_texture, &mut texture_atlas_layouts
+        )
+    );
 
     // Spawn Walls
     commands.spawn(WallBundle::new(GameWall::Top)).insert(KinematicObject);
@@ -316,8 +319,6 @@ fn collision_checks(
 
                         if asteroid.exploding { return; }
 
-
-
                         let collided: bool = asteroid.check_collision(
                             &cur_transform, &neighbor_transform, neighbor_name
                         );
@@ -326,20 +327,47 @@ fn collision_checks(
 
                         if *neighbor_name == CollidableComponentNames::Ship {
 
-                            ship.invulnerable = true;
+                            // ship.invulnerable = true;
 
-                            ship.take_damage();
+                            let new_ship_health = ship.take_damage();
 
-                            let events: [ExplosionEvent; 2] = [
-                                ExplosionEvent {
-                                    explosion_type: ExplosionAnimations::AsteroidExplosion,
-                                    entity: cur_entity
-                                },
-                                ExplosionEvent {
-                                    explosion_type: ExplosionAnimations::ShipExplosion,
-                                    entity: *neighbor_entity
-                                }
-                            ];
+
+                            let events = if new_ship_health == ShipHealth::Empty {
+                                [
+                                    ExplosionEvent {
+                                        explosion_type: ExplosionAnimations::AsteroidExplosion,
+                                        entity: cur_entity
+                                    },
+                                    ExplosionEvent {
+                                        explosion_type: ExplosionAnimations::ShipExplosion,
+                                        entity: *neighbor_entity
+                                    }
+                                ]
+                            } else {
+                                [
+                                    ExplosionEvent {
+                                        explosion_type: ExplosionAnimations::AsteroidExplosion,
+                                        entity: cur_entity
+                                    },
+
+                                    ExplosionEvent {
+                                        explosion_type: ExplosionAnimations::DamageToShip,
+                                        entity: *neighbor_entity
+                                    }
+
+                                ]
+                            };
+
+                            // let events: [ExplosionEvent; 2] = [
+                            //     ExplosionEvent {
+                            //         explosion_type: ExplosionAnimations::AsteroidExplosion,
+                            //         entity: cur_entity
+                            //     },
+                            //     ExplosionEvent {
+                            //         explosion_type: ExplosionAnimations::ShipExplosion,
+                            //         entity: *neighbor_entity
+                            //     }
+                            // ];
 
                             collision_events.send_batch(events);
 
@@ -617,7 +645,7 @@ fn check_if_firing(
 fn explosion_event_listener(
     mut commands: Commands,
     mut collision_events: EventReader<ExplosionEvent>,
-    mut ship_query: Query<&mut Ship>,
+    mut ship_query: Query<(Entity, &mut Ship)>,
     mut asteroid_query: Query<(Entity, &mut Asteroid), Without<AnimationTimer>>,
     mut game_state_res: ResMut<GameState>,
 )  {
@@ -626,10 +654,12 @@ fn explosion_event_listener(
 
         for ExplosionEvent { explosion_type, entity } in collision_events.read() {
 
+            let (ship_entity, mut ship) = ship_query.single_mut();
+
             match explosion_type {
                 ExplosionAnimations::ShipExplosion => {
 
-                    let mut ship: Mut<'_, Ship> = ship_query.single_mut();
+                    // let mut ship: Mut<'_, Ship> = ship_query.single_mut();
 
                     let game_state = game_state_res.as_mut();
 
@@ -652,10 +682,109 @@ fn explosion_event_listener(
                         asteroid.exploding = true;
                     }
                 }
+                
+                ExplosionAnimations::DamageToShip => {
+                    
+                    ship.invulnerable = true;
+
+                    commands.entity(ship_entity).insert(PlayAnimation(AnimatableAsset::Ship));
+                }
             }
         }
         collision_events.clear()
     }
+}
+
+fn play_ship_invulnerable_animation(
+    mut commands: Commands,
+    mut ship_query: Query<(Entity, &mut Ship, &mut TextureAtlas), With<PlayAnimation>>,
+    game_state_res: ResMut<GameState>,
+    time: Res<Time>,
+) {
+
+    let game_state = game_state_res.as_ref();
+
+    if *game_state == GameState::GameOver || *game_state == GameState::Paused {
+        return;
+    }
+
+    for (ship_entity, mut ship, mut atlas ) in ship_query.iter_mut() {
+
+     if ship.invulnerable_timer.elapsed_secs() == 0.0 {
+        // atlas.index += 1;
+
+        println!("Inside if ship.invulnerable_timer.elapsed_secs() == 0.0");
+
+        atlas.index = match ship.health {
+            ShipHealth::Full => {
+                1
+            },
+            ShipHealth::Damaged => {
+                3
+            },
+            ShipHealth::VeryDamaged => {
+                4
+            },
+            ShipHealth::Empty => {
+                4
+            }
+        }
+     }
+
+     ship.invulnerable_timer.tick(time.delta());
+
+     if ship.invulnerable_timer.finished() {
+        ship.invulnerable_timer.reset();
+        ship.invulnerable = false;
+
+        atlas.index = match ship.health {
+            ShipHealth::Full => {
+                1
+            },
+            ShipHealth::Damaged => {
+                3
+            },
+            ShipHealth::VeryDamaged => {
+                4
+            },
+            ShipHealth::Empty => {
+                4
+            }
+        };
+        commands.entity(ship_entity).remove::<PlayAnimation>();
+     } else {
+
+        let time_elapsed = ship.invulnerable_timer.elapsed_secs();
+
+        // Basing this off the animation length is 1.0 seconds
+        let show_nothing = 
+        (time_elapsed > 0.0 && time_elapsed < 0.2) || 
+        (time_elapsed > 0.4 && time_elapsed < 0.6) || 
+        (time_elapsed > 0.8 && time_elapsed < 1.0);
+
+        atlas.index = if show_nothing {
+            0
+        } else {
+            match ship.health {
+                ShipHealth::Full => {
+                    1
+                },
+                ShipHealth::Damaged => {
+                    3
+                },
+                ShipHealth::VeryDamaged => {
+                    4
+                },
+                ShipHealth::Empty => {
+                    4
+                }
+            }
+        }
+
+     }
+
+    }
+
 }
 
 fn player_asteroid_explode(

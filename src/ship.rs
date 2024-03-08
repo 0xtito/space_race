@@ -27,8 +27,9 @@ pub enum ShipHealth {
 pub struct Ship {
     pub health: ShipHealth,
     pub invulnerable: bool,
+    pub invulnerable_timer: AnimationTimer,
+    pub animation_indices: AnimationIndices,
     pub cooldown_length: f32,
-    pub velocity: Velocity
 }
 
 #[derive(Event)]
@@ -60,30 +61,32 @@ impl Ship {
         }
         
     }
-    pub fn take_damage(&mut self)  {
+    pub fn take_damage(&mut self) -> ShipHealth  {
 
         // Testing
         // self.health = ShipHealth::Empty;
 
-        
-
         match self.health {
             ShipHealth::Full => {
                 self.health = ShipHealth::Damaged;
-
-
+                ShipHealth::Damaged
             },
             ShipHealth::Damaged => {
                 self.health = ShipHealth::VeryDamaged;
+                ShipHealth::VeryDamaged
             },
             ShipHealth::VeryDamaged => {
                 self.health = ShipHealth::Empty;
+                ShipHealth::Empty
                 
             },
             ShipHealth::Empty => {
                 self.health = ShipHealth::Empty;
+                ShipHealth::Empty
             },
         }
+
+
 
     }
 }
@@ -91,38 +94,51 @@ impl Ship {
 #[derive(Bundle)]
 pub struct ShipBundle {
     ship: Ship,
-    sprite_bundle: SpriteBundle,
+    sprite_bundle: SpriteSheetBundle,
     collider: Collider,
 }
 
 impl ShipBundle {
 
-    pub fn new(ship_texture: Handle<Image>) -> ShipBundle {
+    pub fn new(
+        ship_texture: Handle<Image>,
+        texture_atlas_layouts: &mut ResMut<Assets<TextureAtlasLayout>>
+    ) -> ShipBundle {
+
+        let ship_layout = TextureAtlasLayout::from_grid(Vec2::new(48.0, 48.0), 5, 1, None, None);
+
+        let texture_atlas_layout = texture_atlas_layouts.add(ship_layout);
+
+        let animation_indices = AnimationIndices {
+            first: 1,
+            last: 4
+        };
 
 
         ShipBundle {
-            sprite_bundle: SpriteBundle {
+            ship: Ship {
+                health: ShipHealth::Full,
+                invulnerable: false,
+                invulnerable_timer: AnimationTimer(Timer::from_seconds(1.0, TimerMode::Repeating)),
+                animation_indices,
+                cooldown_length: 1.0,
+            },
+            sprite_bundle: SpriteSheetBundle {
                 transform: Transform {
                     translation: vec3(0.0, 0.0, 0.0),
-                    // scale: Vec2::new(SHIP_GAME_WIDTH / SHIP_TRUE_WIDTH, SHIP_GAME_HEIGHT / SHIP_TRUE_HEIGHT).extend(0.),
                     scale: SHIP_APPLIED_SCALE,
                     ..default()
                 },
                 sprite: Sprite {
-                    // custom_size: Some(SHIP_SPEC),
-                    // color: Color::rgba(1.0, 0.0, 0.0, 0.5),
                     ..default()
                 }, 
+                atlas: TextureAtlas {
+                    layout: texture_atlas_layout,
+                    index: 1
+                },
                 texture: ship_texture,
                 ..default()
             },
-            ship: Ship {
-                health: ShipHealth::Full,
-                invulnerable: false,
-                cooldown_length: 1.0,
-                velocity: Velocity(Vec2::new(0., 0.))
-            },
-            // collider: Collider(ColliderShape::Circle),
             collider: Collider {
                 name: CollidableComponentNames::Ship,
                 shape: ColliderShape::Circle
@@ -186,8 +202,7 @@ impl Rocket {
 #[derive(Bundle)]
 pub struct RocketBundle {
     rocket: Rocket,
-    sprite_bundle: SpriteBundle,
-    texture_atlas: TextureAtlas,
+    sprite_bundle: SpriteSheetBundle,
     collider: Collider,
 }
 
@@ -195,7 +210,7 @@ impl RocketBundle {
 
     pub fn new(
         asset_server: &Res<AssetServer>, 
-        mut texture_atlas_layouts: &mut ResMut<Assets<TextureAtlasLayout>>, 
+        texture_atlas_layouts: &mut ResMut<Assets<TextureAtlasLayout>>, 
         spawn_location: &Transform
     ) -> RocketBundle {
         let rocket_texture = asset_server.load("weapons/rocket_sprites_3.png");
@@ -203,8 +218,6 @@ impl RocketBundle {
         let layout = TextureAtlasLayout::from_grid(Vec2::new(32.0, 32.0), 3, 1, None, None);
 
         let texture_atlas_layout = texture_atlas_layouts.add(layout);
-
-        // texture_atlas_layouts.ge
 
         let animation_indices = AnimationIndices {
             first: 0,
@@ -214,22 +227,21 @@ impl RocketBundle {
 
 
         RocketBundle {
-            sprite_bundle: SpriteBundle {
+            sprite_bundle: SpriteSheetBundle {
                 transform: Transform {
                     translation: spawn_location.translation.clone(),
                     scale: ROCKET_APPLIED_SCALE,
                     ..default()
                 },
                 sprite: Sprite {
-                    // custom_size: Some(ROCKET_SPEC),
                     ..default()
                 }, 
+                atlas: TextureAtlas {
+                    layout: texture_atlas_layout,
+                    index: 0
+                },
                 texture: rocket_texture,
                 ..default()
-            },
-            texture_atlas: TextureAtlas {
-                layout: texture_atlas_layout,
-                index: 0
             },
             collider: Collider {
                 name: CollidableComponentNames::Rocket,
