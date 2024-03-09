@@ -3,6 +3,8 @@ mod asteroid;
 mod constants;
 mod wall;
 
+use std::time::Duration;
+
 use ship::*;
 use wall::*;
 use asteroid::*;
@@ -12,6 +14,8 @@ use bevy::{
      math::*, 
      prelude::*, window::WindowResolution,
 };
+
+use rand::{distributions::Uniform, Rng};
 
 #[derive(Component)]
 struct GameCamera {
@@ -59,6 +63,9 @@ enum SoundVariants {
     RocketExplosion,
     // BackgroundMusic
 }
+
+#[derive(Resource, Debug)]
+struct SpawnTimer(Timer);
 
 // #[derive(Event)]
 enum ExplosionAnimations {
@@ -140,9 +147,6 @@ fn main() {
         ..default()
     };
 
-    let grid_width = (WINDOW_WIDTH / GRID_SIZE).ceil();
-    let grid_height = (WINDOW_HEIGHT / GRID_SIZE).ceil();
-
     let cells: Vec<Vec<Vec<(Entity, CollidableComponentNames, Transform)>>> = vec![vec![Vec::new(); (WINDOW_HEIGHT / GRID_SIZE) as usize]; (WINDOW_WIDTH / GRID_SIZE) as usize];
 
 
@@ -160,17 +164,21 @@ fn main() {
             primary_window: Some(primary_window),
             ..default()
         }).set(ImagePlugin::default_nearest()))
-        // .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
         .insert_resource(grid)
         .insert_resource(game_state)
         .insert_resource(game_difficulty)
+        .insert_resource(SpawnTimer(Timer::from_seconds(1.0, TimerMode::Repeating)))
         .add_event::<ExplosionEvent>()
         .add_systems(Startup, setup) 
-        .add_systems(Update, (bevy::window::close_on_esc, player_asteroid_explode, play_rocket_animation, play_ship_invulnerable_animation))
+        .add_systems(Update, (
+            bevy::window::close_on_esc, 
+            spawn_asteroids,
+            play_animations
+        ))
         .add_systems(FixedUpdate, (
+            asteroid_manager,
             ship_movement, 
             update_kinematic_objects,
-            update_asteroids,
             check_if_firing,
             update_rockets.after(check_if_firing),
             update_grid,
@@ -204,12 +212,11 @@ fn setup(
         );
 
     // Spawn Ship
-    // let ship_texture = asset_server.load("ship/ship_full.png");
     let ship_texture = asset_server.load("ship/ship_spritesheet_empty_space.png");
     
     commands.spawn(
-        ShipBundle::new(ship_texture, &mut texture_atlas_layouts
-        )
+        ShipBundle::new(ship_texture, &mut texture_atlas_layouts,
+        0.5)
     );
 
     // Spawn Walls
@@ -224,7 +231,8 @@ fn setup(
     commands.spawn(AsteroidBundle::new(
         asteroid_sprite_texture,
         &camera_transform,
-        &mut texture_atlas_layouts
+        &mut texture_atlas_layouts,
+        None
     ));
 
 }
@@ -317,7 +325,7 @@ fn collision_checks(
                             continue;
                         }
 
-                        if asteroid.exploding { return; }
+                        if asteroid.exploding { continue; }
 
                         let collided: bool = asteroid.check_collision(
                             &cur_transform, &neighbor_transform, neighbor_name
@@ -328,6 +336,8 @@ fn collision_checks(
                         if *neighbor_name == CollidableComponentNames::Ship {
 
                             // ship.invulnerable = true;
+
+                            if ship.invulnerable { continue; };
 
                             let new_ship_health = ship.take_damage();
 
@@ -426,18 +436,79 @@ fn update_kinematic_objects(
 
     for mut transform in query.iter_mut() {
 
-        transform.translation.y += SHIP_SPEED * time.delta_seconds();
+        transform.translation.y += KINEMATIC_OBJECTS_SPEED * time.delta_seconds();
     }
 }
 
-fn update_asteroids(
+fn spawn_asteroids(
     mut commands: Commands,
-    mut asteroid_query: Query<(&mut Transform, &mut Asteroid), With<Asteroid>>,
-    camera_query: Query<&Transform, (With<GameCamera>, Without<Asteroid>)>,
+    asteroid_query: Query<&Transform, (With<Asteroid>, Without<Ship>)>,
+    camera_query: Query<&Transform, (With<GameCamera>, Without<Ship>)>,
+    time: Res<Time>,
+    mut timer: ResMut<SpawnTimer>,
+    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
     asset_server_res: Res<AssetServer>,
+    game_state_res: Res<GameState>
+) {
+
+    let game_state = game_state_res.as_ref();
+
+    if *game_state == GameState::GameOver ||  *game_state == GameState::Paused {
+        return;
+    }
+
+    if !timer.0.tick(time.delta()).just_finished() {
+        return;
+    }
+
+    let overall_asteroid_count = asteroid_query.iter().count();
+
+
+    if overall_asteroid_count > 15 {
+        return;
+    }
+
+    let mut rng = rand::thread_rng();
+
+    let camera_transform = camera_query.single();
+
+    let mut spawn_position = Vec3::new(
+        rng.gen_range((-WINDOW_WIDTH / 2.0 + (ASTEROID_SCALED_RADIUS))..(WINDOW_WIDTH / 2.0 - (ASTEROID_SCALED_RADIUS))),
+        TOP_WALL + 100.0 + camera_transform.translation.y, 
+        0.0,
+    );
+
+    // Done to make sure there is no overlap, greater than a asteriod's radius, between asteriods 
+    for transform in asteroid_query.iter() {
+        while (spawn_position.x - transform.translation.x).abs() < ASTEROID_SCALED_RADIUS / 2.0
+            && (spawn_position.y - transform.translation.y).abs() < ASTEROID_SCALED_RADIUS / 2.0
+        {
+            println!("INSIDE WHILE");
+            spawn_position.x = rng.gen_range((-WINDOW_WIDTH / 2.0 + (ASTEROID_SCALED_RADIUS))..(WINDOW_WIDTH / 2.0 - (ASTEROID_SCALED_RADIUS)));
+        }
+    }
+
+    let asteroid_sprite_texture: Handle<Image> = asset_server_res.load("enemys/asteroid_explosion_sprite.png");
+
+    commands.spawn(AsteroidBundle::new(
+        asteroid_sprite_texture,
+        camera_transform,
+        &mut texture_atlas_layouts,
+        Some(spawn_position)
+    ));
+
+    // Resetting the timer to a new random duration between 0.5 and 1.5 seconds
+    timer.0.set_duration(Duration::from_secs_f32(rng.gen_range(0.5..0.75)));
+
+    timer.0.reset();
+}
+
+
+fn asteroid_manager(
+    mut commands: Commands,
+    mut asteroid_query: Query<(Entity, &Transform, &Asteroid), With<Asteroid>>,
+    camera_query: Query<&Transform, (With<GameCamera>, Without<Asteroid>)>,
     game_state_res: Res<GameState>,
-    game_difficulty_res: Res<GameDifficulty>,
-    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>
 ) {
 
     let game_state = game_state_res.as_ref();
@@ -448,7 +519,7 @@ fn update_asteroids(
 
     let camera_transform = camera_query.single();
 
-    for (mut transform, mut asteroid) in asteroid_query.iter_mut() {
+    for (entity, transform, asteroid) in asteroid_query.iter_mut() {
 
         if asteroid.exploding {
             continue;
@@ -457,55 +528,11 @@ fn update_asteroids(
         let is_outside_window: bool = asteroid.is_outside_window(&transform, &camera_transform);
 
         if is_outside_window { 
-            let new_translation = asteroid.reset(camera_transform);
-            transform.translation.x = new_translation.x;
-            transform.translation.y = new_translation.y;
+            // let new_translation = asteroid.reset(camera_transform);
+            // transform.translation = new_translation.extend(0.0);
+
+            commands.entity(entity).despawn()
         } 
-    }
-
-    // Spawn another asteriod depending on difficulty
-    if asteroid_query.is_empty() {
-
-        let game_difficulty = game_difficulty_res.as_ref();
-
-        let asteroid_sprite_texture: Handle<Image> = asset_server_res.load("enemys/asteroid_explosion_sprite.png");
-
-
-        match *game_difficulty {
-            GameDifficulty::Easy => {
-
-                commands.spawn(
-                    AsteroidBundle::new(
-                        asteroid_sprite_texture,
-                        camera_transform,
-                        &mut texture_atlas_layouts
-                    )
-                );
-
-            },
-            GameDifficulty::Medium => {
-
-                commands.spawn(
-                    AsteroidBundle::new(
-                        asteroid_sprite_texture,
-                        camera_transform,
-                        &mut texture_atlas_layouts
-                    )
-                );
-
-            }, 
-            GameDifficulty::Hard => {
-
-                commands.spawn(
-                    AsteroidBundle::new(
-                        asteroid_sprite_texture,
-                        camera_transform,
-                        &mut texture_atlas_layouts
-                    )
-                );
-
-            }
-        }
     }
 }
 
@@ -632,12 +659,13 @@ fn check_if_firing(
         return;
     }
 
-    if keyboard_input.pressed(KeyCode::Space) && ship_properties.cooldown_length == 0.0 {
+    // if keyboard_input.pressed(KeyCode::Space)  {
+    if keyboard_input.pressed(KeyCode::Space) && ship_properties.cooldown_time_left == 0.0 {
 
         ship_properties.fire_rocket(&mut commands, &ship_transform, asset_server, texture_atlas_layouts)
 
-    } else if ship_properties.cooldown_length > 0.0 {
-        ship_properties.cooldown_length -= timestep.delta_seconds();
+    } else if ship_properties.cooldown_time_left > 0.0 {
+        ship_properties.cooldown_time_left -= timestep.delta_seconds();
     }
 
 }
@@ -691,14 +719,15 @@ fn explosion_event_listener(
                 }
             }
         }
+        
         collision_events.clear()
     }
 }
 
-fn play_ship_invulnerable_animation(
+fn play_animations(
     mut commands: Commands,
-    mut ship_query: Query<(Entity, &mut Ship, &mut TextureAtlas), With<PlayAnimation>>,
-    game_state_res: ResMut<GameState>,
+    mut animatable_comp_query:  Query<(Entity, &mut TextureAtlas, Option<&mut Ship>, Option<&mut Asteroid>, Option<&mut Rocket>), With<PlayAnimation>>,
+    game_state_res: Res<GameState>,
     time: Res<Time>,
 ) {
 
@@ -708,147 +737,126 @@ fn play_ship_invulnerable_animation(
         return;
     }
 
-    for (ship_entity, mut ship, mut atlas ) in ship_query.iter_mut() {
+    for (entity, mut atlas, ship, asteroid, rocket) in animatable_comp_query.iter_mut() {
 
-     if ship.invulnerable_timer.elapsed_secs() == 0.0 {
-        // atlas.index += 1;
+        if let Some(mut ship) = ship {
 
-        println!("Inside if ship.invulnerable_timer.elapsed_secs() == 0.0");
+            if ship.invulnerable_timer.elapsed_secs() == 0.0 {
+                // atlas.index += 1;
 
-        atlas.index = match ship.health {
-            ShipHealth::Full => {
-                1
-            },
-            ShipHealth::Damaged => {
-                3
-            },
-            ShipHealth::VeryDamaged => {
-                4
-            },
-            ShipHealth::Empty => {
-                4
-            }
-        }
-     }
+                println!("Inside if ship.invulnerable_timer.elapsed_secs() == 0.0");
 
-     ship.invulnerable_timer.tick(time.delta());
-
-     if ship.invulnerable_timer.finished() {
-        ship.invulnerable_timer.reset();
-        ship.invulnerable = false;
-
-        atlas.index = match ship.health {
-            ShipHealth::Full => {
-                1
-            },
-            ShipHealth::Damaged => {
-                3
-            },
-            ShipHealth::VeryDamaged => {
-                4
-            },
-            ShipHealth::Empty => {
-                4
-            }
-        };
-        commands.entity(ship_entity).remove::<PlayAnimation>();
-     } else {
-
-        let time_elapsed = ship.invulnerable_timer.elapsed_secs();
-
-        // Basing this off the animation length is 1.0 seconds
-        let show_nothing = 
-        (time_elapsed > 0.0 && time_elapsed < 0.2) || 
-        (time_elapsed > 0.4 && time_elapsed < 0.6) || 
-        (time_elapsed > 0.8 && time_elapsed < 1.0);
-
-        atlas.index = if show_nothing {
-            0
-        } else {
-            match ship.health {
-                ShipHealth::Full => {
-                    1
-                },
-                ShipHealth::Damaged => {
-                    3
-                },
-                ShipHealth::VeryDamaged => {
-                    4
-                },
-                ShipHealth::Empty => {
-                    4
+                atlas.index = match ship.health {
+                    ShipHealth::Full => {
+                        1
+                    },
+                    ShipHealth::Damaged => {
+                        3
+                    },
+                    ShipHealth::VeryDamaged => {
+                        4
+                    },
+                    ShipHealth::Empty => {
+                        4
+                    }
                 }
             }
-        }
 
-     }
+            ship.invulnerable_timer.tick(time.delta());
 
-    }
+            if ship.invulnerable_timer.finished() {
+                ship.invulnerable_timer.reset();
+                ship.invulnerable = false;
 
-}
-
-fn player_asteroid_explode(
-    mut commands: Commands,
-    mut asteroid_query: Query<(Entity, &mut Asteroid, &mut TextureAtlas), With<PlayAnimation>>,
-    game_state_res: Res<GameState>,
-    time: Res<Time>,
-) {
-
-    let game_state = game_state_res.as_ref();
-
-    if *game_state == GameState::GameOver || *game_state == GameState::Paused {
-        return;
-    }
-
-    for (mut entity, mut asteroid, mut atlas ) in asteroid_query.iter_mut() {
-
-        if !asteroid.exploding { return };
-        
-        asteroid.animation_timer.tick(time.delta());
-
-        if asteroid.animation_timer.just_finished()  {
-            commands.entity(entity).despawn();       
-        } else if atlas.index == asteroid.animation_indices.last  {
-            atlas.index = atlas.index;
-        } else {
-            atlas.index = atlas.index + 1;
-        }
-    }
-}
-
-fn play_rocket_animation(
-    mut rocket_query: Query<(Entity, &mut Rocket, &mut TextureAtlas), With<PlayAnimation>>,
-    game_state_res: Res<GameState>,
-    time: Res<Time>,
-) {
-
-    let game_state = game_state_res.as_ref();
-
-    if *game_state == GameState::GameOver || *game_state == GameState::Paused {
-        return;
-    }
-
-    for (entity, mut rocket, mut atlas) in rocket_query.iter_mut() {
-
-        if rocket.hit_target { continue; }
-
-        // let time_remaining = rocket.animation_timer.remaining_secs();
-        // let delta = time.delta();
-
-        rocket.animation_timer.tick(time.delta());
-
-
-        if rocket.animation_timer.finished() {
-
-        // atlas.index += 1;
-            atlas.index = if atlas.index == rocket.animation_indices.last {
-                rocket.animation_indices.first
+                atlas.index = match ship.health {
+                    ShipHealth::Full => {
+                        1
+                    },
+                    ShipHealth::Damaged => {
+                        3
+                    },
+                    ShipHealth::VeryDamaged => {
+                        4
+                    },
+                    ShipHealth::Empty => {
+                        4
+                    }
+                };
+                commands.entity(entity).remove::<PlayAnimation>();
             } else {
-                atlas.index + 1
-            };
-        }
-    };
 
+                let time_elapsed = ship.invulnerable_timer.elapsed_secs();
+
+                // Basing this off the animation length being 1.0 seconds
+                // let show_nothing = 
+                // (time_elapsed > 0.0 && time_elapsed < 0.2) || 
+                // (time_elapsed > 0.4 && time_elapsed < 0.6) || 
+                // (time_elapsed > 0.8 && time_elapsed < 1.0);
+
+                // Basing this off the animation length being 2.0 seconds
+                let show_nothing = 
+                (time_elapsed > 0.0 && time_elapsed < 0.4) || 
+                (time_elapsed > 0.8 && time_elapsed < 1.2) || 
+                (time_elapsed > 1.6 && time_elapsed < 2.0);
+
+                atlas.index = if show_nothing {
+                    0
+                } else {
+                    match ship.health {
+                        ShipHealth::Full => {
+                            1
+                        },
+                        ShipHealth::Damaged => {
+                            3
+                        },
+                        ShipHealth::VeryDamaged => {
+                            4
+                        },
+                        ShipHealth::Empty => {
+                            4
+                        }
+                    }
+                }
+
+            }
+
+        }
+
+        if let Some(mut asteroid) = asteroid {
+
+            if !asteroid.exploding { return };
+        
+            asteroid.animation_timer.tick(time.delta());
+    
+            if asteroid.animation_timer.just_finished()  {
+                commands.entity(entity).despawn();       
+            } else if atlas.index == asteroid.animation_indices.last  {
+                atlas.index = atlas.index;
+            } else {
+                atlas.index = atlas.index + 1;
+            }
+        }
+
+        if let Some(mut rocket) = rocket {
+            if rocket.hit_target { continue; }
+
+            // let time_remaining = rocket.animation_timer.remaining_secs();
+            // let delta = time.delta();
+    
+            rocket.animation_timer.tick(time.delta());
+    
+    
+            if rocket.animation_timer.finished() {
+    
+            // atlas.index += 1;
+                atlas.index = if atlas.index == rocket.animation_indices.last {
+                    rocket.animation_indices.first
+                } else {
+                    atlas.index + 1
+                };
+            }
+        }
+    }
 }
 
 fn load_in_background(

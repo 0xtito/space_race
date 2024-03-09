@@ -10,6 +10,11 @@ pub const GRID_SIZE: f32 = 40.0;
 
 pub const BACKGROUND_DIMENSIONS: Vec2 = Vec2::new(360.0, 5760.0);
 
+// will eventually be decided by the players
+pub const KINEMATIC_OBJECTS_SPEED: f32 = 150.;
+
+
+
 
 // pub const SHIP_SPRITE_WIDTH: f32 = 50.0;
 // pub const SHIP_SPRITE_HEIGHT: f32 = 50.0;
@@ -31,7 +36,7 @@ pub const ASTEROID_GAME_HEIGHT: f32 = 100.0;
 pub const ASTEROID_TRUE_WIDTH: f32 = 37.0;
 pub const ASTEROID_TRUE_HEIGHT: f32 = 32.0;
 pub const ASTEROID_APPLIED_SCALE: Vec3 = Vec3::new(1.5, 1.5, 1.0);
-// pub const ASTEROID
+pub const ASTEROID_SCALED_RADIUS: f32 = ASTEROID_TRUE_WIDTH * ASTEROID_APPLIED_SCALE.x / 2.0;
 
 // Rocket
 pub const ROCKET_SPEED: f32 = 300.;
@@ -55,4 +60,5 @@ pub const RIGHT_WALL: f32 = WINDOW_WIDTH / 2.;
 pub const LEFT_WALL: f32 = -WINDOW_WIDTH / 2.;
 
 pub const WALL_THICKNESS: f32 = 10.0;
+pub const TRANSPARENT_WALL_COLOR: Color = Color::rgba(0.0, 0.0, 0.0, 0.0);
 pub const WALL_COLOR: Color = Color::rgb(0.0, 0.0, 0.0);

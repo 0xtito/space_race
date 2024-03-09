@@ -30,13 +30,8 @@ pub struct Ship {
     pub invulnerable_timer: AnimationTimer,
     pub animation_indices: AnimationIndices,
     pub cooldown_length: f32,
+    pub cooldown_time_left: f32,
 }
-
-#[derive(Event)]
-struct RocketAnimation{
-    entity: Entity,
-}
-
 
 impl Ship {
     pub fn fire_rocket(
@@ -48,14 +43,16 @@ impl Ship {
     ) {
 
         // Means you can now fire the rocket
-        if self.cooldown_length == 0.0 {
+        // Just for precaution right now because
+        // when i call fire_rocket I am making that check + incrementing anyway
+        if self.cooldown_time_left == 0.0 {
             let rocket_bundle = RocketBundle::new(
                 &asset_server,
                 &mut texture_atlas_layouts,
                 &ship_transform
             );
 
-            self.cooldown_length = 1.0;
+            self.cooldown_time_left = self.cooldown_length;
 
             commands.spawn(rocket_bundle).insert(PlayAnimation(crate::AnimatableAsset::Rocket));
         }
@@ -102,7 +99,8 @@ impl ShipBundle {
 
     pub fn new(
         ship_texture: Handle<Image>,
-        texture_atlas_layouts: &mut ResMut<Assets<TextureAtlasLayout>>
+        texture_atlas_layouts: &mut ResMut<Assets<TextureAtlasLayout>>,
+        cooldown_length: f32
     ) -> ShipBundle {
 
         let ship_layout = TextureAtlasLayout::from_grid(Vec2::new(48.0, 48.0), 5, 1, None, None);
@@ -119,9 +117,10 @@ impl ShipBundle {
             ship: Ship {
                 health: ShipHealth::Full,
                 invulnerable: false,
-                invulnerable_timer: AnimationTimer(Timer::from_seconds(1.0, TimerMode::Repeating)),
+                invulnerable_timer: AnimationTimer(Timer::from_seconds(2.0, TimerMode::Repeating)),
                 animation_indices,
-                cooldown_length: 1.0,
+                cooldown_length,
+                cooldown_time_left: cooldown_length
             },
             sprite_bundle: SpriteSheetBundle {
                 transform: Transform {
@@ -181,7 +180,7 @@ impl Rocket {
 
             let asteroid_circle = BoundingCircle::new(
                 other_transform.translation.truncate(),
-                ASTEROID_TRUE_WIDTH * ASTEROID_APPLIED_SCALE.x / 2.0
+                ASTEROID_SCALED_RADIUS
             );
 
             match rocket_rectangle.intersects(&asteroid_circle) {

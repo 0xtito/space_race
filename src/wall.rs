@@ -63,7 +63,7 @@ impl WallBundle {
                     ..default()
                 },
                 sprite: Sprite {
-                    color: WALL_COLOR,
+                    color: TRANSPARENT_WALL_COLOR,
                     ..default()
                 },
                 ..default()

@@ -28,41 +28,9 @@ pub struct Asteroid {
     pub animation_timer: AnimationTimer
 }
 
-
-
-
 impl Asteroid {
-    pub fn reset(&mut self, camera_transform: &Transform) -> Vec2 {
-
-
-        let x = rand::thread_rng().gen_range(0.0..=1.0) * WINDOW_WIDTH - WINDOW_WIDTH / 2.0;
-        let y = (WINDOW_HEIGHT / 2.0) + camera_transform.translation.y;
-
-        Vec2::new(x, y)
-    }
-
     pub fn take_damage(&mut self)  {
-
         self.exploding = true;
-
-        // if 
-
-        // match self.health {
-        //     AsteroidHealth::Full => {
-        //         self.health = AsteroidHealth::Damaged;
-        //     },
-        //     AsteroidHealth::Damaged => {
-        //         self.health = AsteroidHealth::VeryDamaged;
-        //     },
-        //     AsteroidHealth::VeryDamaged => {
-        //         self.health = AsteroidHealth::Empty;
-                
-        //     },
-        //     AsteroidHealth::Empty => {
-        //         self.health = AsteroidHealth::Empty;
-        //     },
-        // }
-
     }
     
     pub fn is_outside_window(&self, asteroid_transform: &Transform, camera_transform: &Transform) -> bool {
@@ -78,17 +46,16 @@ impl Asteroid {
         &mut self, 
         asteroid_transform: &Transform, 
         other_transform: &Transform, 
-        other_name: &CollidableComponentNames
+        other_name: &CollidableComponentNames,
     ) -> bool {
         let asteroid_circle = BoundingCircle::new(
             asteroid_transform.translation.truncate(),
-            ASTEROID_TRUE_WIDTH * ASTEROID_APPLIED_SCALE.x / 2.0
+            ASTEROID_SCALED_RADIUS
         );
 
         match other_name {
             // Rocket and Asteroid Collide
             CollidableComponentNames::Rocket => {
-                // handle collision with rocket
 
                 let rocket_rectangle = Aabb2d::new(
                     other_transform.translation.truncate(),
@@ -97,9 +64,7 @@ impl Asteroid {
 
                 match asteroid_circle.intersects(&rocket_rectangle) {
                     true => {
-
-                        self.exploding = true;
-
+                        self.take_damage();
                         true
                     },
                     false => {
@@ -109,7 +74,6 @@ impl Asteroid {
             }
             // Ship and Asteroid Collide
             CollidableComponentNames::Ship => {
-                // handle collision with ship
 
                 let ship_circle = BoundingCircle::new(
                     other_transform.translation.truncate(),
@@ -136,15 +100,16 @@ impl Asteroid {
 #[derive(Bundle)]
 pub struct AsteroidBundle {
     pub asteroid: Asteroid,
-    sprite_bundle: SpriteSheetBundle,
-    collider: Collider,
+    pub sprite_bundle: SpriteSheetBundle,
+    pub collider: Collider,
 }
 
 impl AsteroidBundle {
     pub fn new(
         texture: Handle<Image>, 
         camera_transform: &Transform ,
-        texture_atlas_layouts: &mut ResMut<Assets<TextureAtlasLayout>>
+        texture_atlas_layouts: &mut ResMut<Assets<TextureAtlasLayout>>,
+        spawn_location: Option<Vec3>
     ) -> AsteroidBundle {
 
         let camera_translation_y = camera_transform.translation.y;
@@ -159,6 +124,8 @@ impl AsteroidBundle {
 
         let animation_indices = AnimationIndices { first: 0, last: 7 };
 
+        println!("{:?}", spawn_location.is_some());
+
 
         AsteroidBundle {
             asteroid: Asteroid {
@@ -168,7 +135,7 @@ impl AsteroidBundle {
             },
             sprite_bundle: SpriteSheetBundle {
                 transform: Transform {
-                    translation: Vec2::new(x, y).extend(0.),
+                    translation: if spawn_location.is_some() { spawn_location.unwrap() } else { Vec2::new(x, y).extend(0.) },
                     scale: ASTEROID_APPLIED_SCALE,
                     ..default()
                 },
