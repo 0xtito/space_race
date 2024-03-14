@@ -300,16 +300,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy-parallax"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48a8d8b7d4152965e1890c88fca2b066df3599df1574a189d62ed9cedac7d6cd"
-dependencies = [
- "bevy",
- "serde",
-]
-
-[[package]]
 name = "bevy_a11y"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -867,6 +857,15 @@ dependencies = [
  "serde",
  "thiserror",
  "uuid",
+]
+
+[[package]]
+name = "bevy_screen_diagnostics"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eec7594e1843b11cf03bffe9e22671c2eb613bfda88b7c438e46e1686b926a8d"
+dependencies = [
+ "bevy",
 ]
 
 [[package]]
@@ -3274,7 +3273,7 @@ name = "space_race"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "bevy-parallax",
+ "bevy_screen_diagnostics",
  "rand",
 ]
 
