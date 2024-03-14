@@ -1,12 +1,7 @@
 
 use bevy::{
     math::{
-        bounding::{
-            Aabb2d, 
-            BoundingCircle, 
-            IntersectsVolume, 
-            BoundingVolume
-        }, 
+        bounding::{Aabb2d, BoundingCircle, IntersectsVolume}, 
         Vec2
     }, 
     prelude::*, 
@@ -15,17 +10,19 @@ use bevy::{
 
 use rand::Rng;
 
-
-
 use crate::{
-    constants::*, AnimationIndices, AnimationTimer, CollidableComponentNames, Collider, ColliderShape, ExplosionEvent
+    constants::*, 
+    AnimationIndices, 
+    AnimationProperties, 
+    AnimationTimer, 
+    CollidableComponentNames, 
+    Collider, 
+    ColliderShape
 };
 
 #[derive(Component, Debug)]
 pub struct Asteroid {
     pub exploding: bool,
-    pub animation_indices: AnimationIndices,
-    pub animation_timer: AnimationTimer
 }
 
 impl Asteroid {
@@ -102,6 +99,7 @@ pub struct AsteroidBundle {
     pub asteroid: Asteroid,
     pub sprite_bundle: SpriteSheetBundle,
     pub collider: Collider,
+    pub animation: AnimationProperties
 }
 
 impl AsteroidBundle {
@@ -124,14 +122,10 @@ impl AsteroidBundle {
 
         let animation_indices = AnimationIndices { first: 0, last: 7 };
 
-        println!("{:?}", spawn_location.is_some());
-
 
         AsteroidBundle {
             asteroid: Asteroid {
                 exploding: false,
-                animation_indices,
-                animation_timer: AnimationTimer(Timer::from_seconds(0.12, TimerMode::Once))
             },
             sprite_bundle: SpriteSheetBundle {
                 transform: Transform {
@@ -152,6 +146,11 @@ impl AsteroidBundle {
             collider: Collider {
                 name: CollidableComponentNames::Asteroid,
                 shape: ColliderShape::Circle
+            },
+            animation: AnimationProperties {
+                // asset: crate::AnimatableAsset::Asteroid,
+                indices: animation_indices,
+                timer: AnimationTimer(Timer::from_seconds(0.12, TimerMode::Once))
             }
         }
     }

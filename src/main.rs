@@ -11,25 +11,29 @@ use asteroid::*;
 use constants::*;
 
 use bevy::{
-     math::*, 
-     prelude::*, window::WindowResolution,
+    math::*, 
+    prelude::*, 
+    window::WindowResolution 
 };
 
-use rand::{distributions::Uniform, Rng};
+use bevy_screen_diagnostics::{ScreenDiagnosticsPlugin, ScreenFrameDiagnosticsPlugin, ScreenEntityDiagnosticsPlugin};
+
+use rand::Rng;
+
+#[derive(Debug, Resource, Clone, Eq, PartialEq, Hash, Default, States)]
+enum AppState {
+    #[default]
+    StartMenu,
+    GameOverMenu,
+    InGame,
+    Paused,
+}
 
 #[derive(Component)]
-struct GameCamera {
-    moving: bool
-}
+struct GameCamera;
 
 #[derive(Resource, PartialEq)]
-enum GameState {
-    Playing,
-    Paused,
-    GameOver
-}
-
-#[derive(Resource, PartialEq)]
+#[allow(dead_code)]
 enum GameDifficulty {
     Easy,
     Medium,
@@ -57,15 +61,15 @@ enum ColliderShape {
     Rectangle
 }
 
-enum SoundVariants {
-    ShipExplosion,
-    DamageToShip,
-    RocketExplosion,
-    // BackgroundMusic
-}
+// enum SoundVariants {
+//     ShipExplosion,
+//     DamageToShip,
+//     RocketExplosion,
+//     // BackgroundMusic
+// }
 
 #[derive(Resource, Debug)]
-struct SpawnTimer(Timer);
+struct AsteriodRespawnTimer(Timer);
 
 // #[derive(Event)]
 enum ExplosionAnimations {
@@ -74,14 +78,15 @@ enum ExplosionAnimations {
     DamageToShip
 }
 
-enum AnimatableAsset {
-    Rocket,
-    Asteroid,
-    Ship
-}
+// #[derive(Component, Debug)]
+// enum AnimatableAsset {
+//     Rocket,
+//     Asteroid,
+//     Ship
+// }
 
 #[derive(Component)]
-struct PlayAnimation(AnimatableAsset);
+struct PlayAnimation;
 
 #[derive(Component, Debug, Deref, DerefMut)]
 pub struct AnimationTimer(Timer);
@@ -112,6 +117,7 @@ enum CollidableComponentNames {
 }
 
 #[derive(Component)]
+#[allow(dead_code)]
 struct Collider {
     name: CollidableComponentNames,
     shape: ColliderShape
@@ -127,15 +133,22 @@ struct Grid {
 }
 
 
+#[derive(Resource, Debug, Deref, DerefMut)]
+struct ScoreCounter(u64);
+
+#[derive(Resource, Debug)]
+struct ScoreTracker {
+    score_count: ScoreCounter,
+    timer: Timer
+}
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+struct MyGameSet;
 
 
-/**
- * Overview of the game:
- *   - The player must live as long as possible
- *   - The player can move left, right, up, and down - but cannot move outside of the window.
- *   - Asteroids 
- *   - The player can destroy enemies
- */
+#[derive(Event)]
+struct AsteroidDestroyed;
+
 fn main() {
 
     // Window 
@@ -154,37 +167,71 @@ fn main() {
         cells,
         grid_size: GRID_SIZE,
     };
-
-    let game_state: GameState = GameState::Playing;
     
-    let game_difficulty = GameDifficulty::Hard;
-
     App::new()
-        .add_plugins(DefaultPlugins.set( WindowPlugin {
-            primary_window: Some(primary_window),
-            ..default()
-        }).set(ImagePlugin::default_nearest()))
-        .insert_resource(grid)
-        .insert_resource(game_state)
-        .insert_resource(game_difficulty)
-        .insert_resource(SpawnTimer(Timer::from_seconds(1.0, TimerMode::Repeating)))
-        .add_event::<ExplosionEvent>()
-        .add_systems(Startup, setup) 
-        .add_systems(Update, (
-            bevy::window::close_on_esc, 
-            spawn_asteroids,
-            play_animations
+        .add_plugins(
+            DefaultPlugins.set( 
+            WindowPlugin {
+                primary_window: Some(primary_window),
+                ..default()
+            }).set(ImagePlugin::default_nearest())
+        ).add_plugins((
+            ScreenDiagnosticsPlugin::default(),
+            ScreenFrameDiagnosticsPlugin,
+            ScreenEntityDiagnosticsPlugin
         ))
+        .insert_state(AppState::InGame)
+        .configure_sets(Update, (
+            MyGameSet.run_if(in_state(AppState::InGame)),
+        ))
+        .configure_sets(FixedUpdate, (
+            MyGameSet.run_if(in_state(AppState::InGame)),
+        ))
+        .configure_sets(PostUpdate, (
+            MyGameSet.run_if(in_state(AppState::InGame)),
+        ))
+        .insert_resource(ScoreTracker {
+            score_count: ScoreCounter(0),
+            timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+        })
+        .insert_resource(grid)
+        .insert_resource(AppState::InGame)
+        .insert_resource(GameDifficulty::Hard)
+        .insert_resource(AsteriodRespawnTimer(Timer::from_seconds(1.0, TimerMode::Repeating)))
+        .add_event::<ExplosionEvent>()
+        .add_event::<AsteroidDestroyed>()
+        .add_systems(Startup, setup)
+        .add_systems(PreUpdate, (
+            bevy::window::close_on_esc,
+            pause_game,
+        ))
+        .add_systems(Update, 
+
+            (
+                check_if_firing,
+                update_active_rockets.after(check_if_firing),
+                update_grid,
+                collision_checks.after(update_grid),
+            ).in_set(MyGameSet)
+
+        )
+        .add_systems(FixedPreUpdate, 
+            apply_state_transition::<AppState>.before(MyGameSet)
+        )
         .add_systems(FixedUpdate, (
-            asteroid_manager,
-            ship_movement, 
-            update_kinematic_objects,
-            check_if_firing,
-            update_rockets.after(check_if_firing),
-            update_grid,
-            collision_checks.after(update_grid),
-            explosion_event_listener.after(collision_checks),
-        ).chain())
+            (
+                spawn_asteroids,
+                asteroid_manager,
+                ship_movement,
+                update_kinematic_objects
+            ).chain()
+        ).in_set(MyGameSet))
+        .add_systems(PostUpdate, (  
+            explosion_event_listener,          
+            play_animations.after(explosion_event_listener),
+            asteroid_destroyed, 
+            update_score.after(asteroid_destroyed),
+        ).in_set(MyGameSet))
         .run();
 }
 
@@ -199,15 +246,12 @@ fn setup(
     let camera_transform = camera_bundle.transform.clone();
 
     load_in_background(&mut commands, &asset_server);
-
     // Camera setup
     commands
         .spawn(camera_bundle)
         .insert(
             (
-            GameCamera {
-                moving: true
-            }, 
+            GameCamera, 
             KinematicObject)
         );
 
@@ -234,6 +278,31 @@ fn setup(
         &mut texture_atlas_layouts,
         None
     ));
+
+}
+
+fn pause_game(
+    keyboard_input: Res<ButtonInput<KeyCode>>, 
+    state: Res<State<AppState>>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+
+    if keyboard_input.just_pressed(KeyCode::KeyM) {
+        let game_state = state.get();
+
+        println!("Current Game State: {:?}", game_state);
+        match *game_state {
+            AppState::InGame => {
+                println!("Setting next state to Paused");
+                next_state.set(AppState::Paused);
+            },
+            AppState::Paused => {
+                println!("Setting next state to InGame");
+                next_state.set(AppState::InGame);
+            },
+            _ => {}
+        }
+    }
 
 }
 
@@ -277,22 +346,13 @@ fn collision_checks(
     mut collidable_query: Query<(Entity, &Transform, Option<&mut Asteroid>, Option<&mut Rocket>), With<Collider>>,
     camera_query: Query<&Transform, With<GameCamera>>,
     mut collision_events: EventWriter<ExplosionEvent>,
-    game_state_res: Res<GameState>
 ) {
 
-    let game_state = game_state_res.as_ref();
-
-    if *game_state == GameState::GameOver || *game_state == GameState::Paused {
-        return;
-    }
-
     let mut ship = ship_query.single_mut();
-
 
     let camera_transform = camera_query.single();
     let camera_translation = camera_transform.translation;
 
-    // let mut raw_grid = grid.as_deref_mut();
     let grid = res_grid.as_mut();
 
     for ( cur_entity, cur_transform, mut asteroid, mut rocket ) in &mut collidable_query {
@@ -316,126 +376,126 @@ fn collision_checks(
                 let neighbor_y  = (grid_y as i32 + dy) as usize;
 
                 if neighbor_x > 8 || neighbor_y > 14  { continue; }
+
+                let cur_cell: &Vec<(Entity, CollidableComponentNames, Transform)> = &grid[neighbor_x][neighbor_y];
+
+                process_collision(cur_cell, &cur_entity, cur_transform, &mut collision_events, &mut asteroid, &mut rocket, &mut ship);
                 
-                for (neighbor_entity, neighbor_name, mut neighbor_transform) in &grid[neighbor_x][neighbor_y] {
-
-                    if let Some(ref mut asteroid) = asteroid {
-
-                        if *neighbor_name == CollidableComponentNames::Asteroid {
-                            continue;
-                        }
-
-                        if asteroid.exploding { continue; }
-
-                        let collided: bool = asteroid.check_collision(
-                            &cur_transform, &neighbor_transform, neighbor_name
-                        );
-
-                        if !collided { continue; }
-
-                        if *neighbor_name == CollidableComponentNames::Ship {
-
-                            // ship.invulnerable = true;
-
-                            if ship.invulnerable { continue; };
-
-                            let new_ship_health = ship.take_damage();
-
-
-                            let events = if new_ship_health == ShipHealth::Empty {
-                                [
-                                    ExplosionEvent {
-                                        explosion_type: ExplosionAnimations::AsteroidExplosion,
-                                        entity: cur_entity
-                                    },
-                                    ExplosionEvent {
-                                        explosion_type: ExplosionAnimations::ShipExplosion,
-                                        entity: *neighbor_entity
-                                    }
-                                ]
-                            } else {
-                                [
-                                    ExplosionEvent {
-                                        explosion_type: ExplosionAnimations::AsteroidExplosion,
-                                        entity: cur_entity
-                                    },
-
-                                    ExplosionEvent {
-                                        explosion_type: ExplosionAnimations::DamageToShip,
-                                        entity: *neighbor_entity
-                                    }
-
-                                ]
-                            };
-
-                            // let events: [ExplosionEvent; 2] = [
-                            //     ExplosionEvent {
-                            //         explosion_type: ExplosionAnimations::AsteroidExplosion,
-                            //         entity: cur_entity
-                            //     },
-                            //     ExplosionEvent {
-                            //         explosion_type: ExplosionAnimations::ShipExplosion,
-                            //         entity: *neighbor_entity
-                            //     }
-                            // ];
-
-                            collision_events.send_batch(events);
-
-                        } else {
-
-                            println!("Asteroid collided with Rocket");
-
-                            collision_events.send(
-                                ExplosionEvent {
-                                    explosion_type: ExplosionAnimations::AsteroidExplosion,
-                                    entity: cur_entity
-                                }
-                            );
-
-                        }                                
-                        
-                    }
-
-                    // Means current entity is a Rocket
-                    if let Some(ref mut rocket) = rocket {
-
-                        if *neighbor_name == CollidableComponentNames::Asteroid {
-
-                            let collided = rocket.check_collision(
-                                &cur_transform,
-                                &neighbor_transform,
-                                neighbor_name
-                            );
-
-                            // if !collided { continue; }
-
-                           if collided {
-                                println!("Rocket collided with Asteroid");
-                                rocket.hit_target = true;
-                           } 
-                        };
-                    }
-                }
             }
         }  
     }
 }
 
 
+fn process_collision(
+    cell: &Vec<(Entity, CollidableComponentNames, Transform)>,
+    cur_entity: &Entity,
+    cur_transform: &Transform,
+    collision_events: &mut EventWriter<ExplosionEvent>,
+    asteroid: &mut Option<Mut<'_, Asteroid>>,
+    rocket: &mut Option<Mut<'_, Rocket>>,
+    ship: &mut Ship,
+) {
+
+    for (neighbor_entity, neighbor_name, neighbor_transform) in cell {
+
+
+        if let Some(ref mut asteroid) = asteroid {
+
+            if *neighbor_name == CollidableComponentNames::Asteroid {
+                continue;
+            }
+
+            if asteroid.exploding { continue; }
+
+            let collided: bool = asteroid.check_collision(
+                &cur_transform, &neighbor_transform, neighbor_name
+            );
+
+            if !collided { continue; }
+
+            match *neighbor_name {
+                CollidableComponentNames::Rocket => {
+                    println!("Asteroid collided with Rocket");
+
+                    collision_events.send(
+                        ExplosionEvent {
+                            explosion_type: ExplosionAnimations::AsteroidExplosion,
+                            entity: *cur_entity
+                        }
+                    );
+                },
+                CollidableComponentNames::Ship => {
+                    println!("Asteroid collided with Ship");
+
+                    if ship.invulnerable { continue; };
+
+                    let new_ship_health = ship.take_damage();
+
+
+                    let events = if new_ship_health == ShipHealth::Empty {
+                        [
+                            ExplosionEvent {
+                                explosion_type: ExplosionAnimations::AsteroidExplosion,
+                                entity: *cur_entity
+                            },
+                            ExplosionEvent {
+                                explosion_type: ExplosionAnimations::ShipExplosion,
+                                entity: *neighbor_entity
+                            }
+                        ]
+                    } else {
+                        [
+                            ExplosionEvent {
+                                explosion_type: ExplosionAnimations::AsteroidExplosion,
+                                entity: *cur_entity
+                            },
+
+                            ExplosionEvent {
+                                explosion_type: ExplosionAnimations::DamageToShip,
+                                entity: *neighbor_entity
+                            }
+
+                        ]
+                    };
+
+                    collision_events.send_batch(events);
+
+                    println!("Asteroid collided with Ship");
+                },
+                _ => {}
+            }                           
+        }
+
+        // Means current entity is a Rocket
+        if let Some(ref mut rocket) = rocket {
+
+            // The rocket will only ever hit an asteroid
+            if *neighbor_name == CollidableComponentNames::Asteroid {
+
+                let collided = rocket.check_collision(
+                    &cur_transform,
+                    &neighbor_transform,
+                    neighbor_name
+                );
+
+               if collided {
+                    println!("Rocket collided with Asteroid");
+                    rocket.hit_target = true;
+               } 
+            };
+        }
+    }
+
+
+}
+
 fn update_kinematic_objects(
     time: Res<Time<Fixed>>, 
     mut query: Query<&mut Transform, With<KinematicObject>>, 
-    game_state_res: Res<GameState>
+    
 ) {
-
-    let game_state = game_state_res.as_ref();
-
-    if *game_state == GameState::GameOver || *game_state == GameState::Paused {
-        return;
-    }
-
     for mut transform in query.iter_mut() {
-
         transform.translation.y += KINEMATIC_OBJECTS_SPEED * time.delta_seconds();
     }
 }
@@ -445,17 +505,10 @@ fn spawn_asteroids(
     asteroid_query: Query<&Transform, (With<Asteroid>, Without<Ship>)>,
     camera_query: Query<&Transform, (With<GameCamera>, Without<Ship>)>,
     time: Res<Time>,
-    mut timer: ResMut<SpawnTimer>,
+    mut timer: ResMut<AsteriodRespawnTimer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
     asset_server_res: Res<AssetServer>,
-    game_state_res: Res<GameState>
 ) {
-
-    let game_state = game_state_res.as_ref();
-
-    if *game_state == GameState::GameOver ||  *game_state == GameState::Paused {
-        return;
-    }
 
     if !timer.0.tick(time.delta()).just_finished() {
         return;
@@ -507,15 +560,12 @@ fn spawn_asteroids(
 fn asteroid_manager(
     mut commands: Commands,
     mut asteroid_query: Query<(Entity, &Transform, &Asteroid), With<Asteroid>>,
-    camera_query: Query<&Transform, (With<GameCamera>, Without<Asteroid>)>,
-    game_state_res: Res<GameState>,
+    camera_query: Query<&Transform, (With<GameCamera>, Without<Asteroid>)>
 ) {
 
-    let game_state = game_state_res.as_ref();
+    
 
-    if *game_state == GameState::GameOver || *game_state == GameState::Paused {
-        return;
-    }
+    
 
     let camera_transform = camera_query.single();
 
@@ -536,7 +586,7 @@ fn asteroid_manager(
     }
 }
 
-fn update_rockets(
+fn update_active_rockets(
     mut commands: Commands,
     timestep: Res<Time<Fixed>>,
     mut rocket_query: Query<(Entity, &mut Transform, &Rocket), With<Rocket>>,
@@ -578,14 +628,7 @@ fn ship_movement(
     timestep: Res<Time<Fixed>>, 
     mut ship_query: Query<(&mut Transform, &Ship), With<Ship>>,
     camera_query: Query<&Transform, (With<GameCamera>, Without<Ship>)>,
-    game_state_res: Res<GameState>
 ) {
-
-    let game_state = game_state_res.as_ref();
-
-    if *game_state == GameState::GameOver || *game_state == GameState::Paused {
-        return;
-    }
 
     let ( upper_bound, lower_bound ) = get_y_bounds(&camera_query);
 
@@ -598,7 +641,7 @@ fn ship_movement(
 
     let mut magnitude = MovementMagnitude {
         x: 0.,
-        y: 1.
+        y: 1.5
     };
 
     if keyboard_input.pressed(KeyCode::KeyW) || keyboard_input.pressed(KeyCode::ArrowUp) {
@@ -641,15 +684,7 @@ fn check_if_firing(
     mut commands: Commands,
     texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
     mut ship_query: Query<(&mut Transform, &mut Ship), With<Ship>>,
-    game_state_res: Res<GameState>
 ) {
-
-
-    let game_state = game_state_res.as_ref();
-
-    if *game_state == GameState::GameOver || *game_state == GameState::Paused {
-        return;
-    }
 
     let (ship_transform, mut ship_properties) = ship_query.single_mut();
 
@@ -673,9 +708,10 @@ fn check_if_firing(
 fn explosion_event_listener(
     mut commands: Commands,
     mut collision_events: EventReader<ExplosionEvent>,
+    mut asteroid_explosion: EventWriter<AsteroidDestroyed>,
     mut ship_query: Query<(Entity, &mut Ship)>,
     mut asteroid_query: Query<(Entity, &mut Asteroid), Without<AnimationTimer>>,
-    mut game_state_res: ResMut<GameState>,
+    mut next_app_state: ResMut<NextState<AppState>>,
 )  {
 
     if !collision_events.is_empty() {
@@ -687,13 +723,8 @@ fn explosion_event_listener(
             match explosion_type {
                 ExplosionAnimations::ShipExplosion => {
 
-                    // let mut ship: Mut<'_, Ship> = ship_query.single_mut();
-
-                    let game_state = game_state_res.as_mut();
-
-                    *game_state = GameState::GameOver;
+                    next_app_state.set(AppState::GameOverMenu);
                     
-
                     println!("*ship explosion*");
 
                 }, 
@@ -705,7 +736,24 @@ fn explosion_event_listener(
 
                         println!("*asteroid explosion*");
 
-                        commands.entity(asteroid_entity).insert(PlayAnimation(AnimatableAsset::Asteroid));
+                        // commands.entity(asteroid_entity).insert(PlayAnimation(AnimatableAsset::Asteroid));
+                        commands.entity(asteroid_entity).insert(PlayAnimation);
+
+                        
+                        // Audio now properly works, but only with ogg files (idk why yet)
+                        // Need to better start and stop the audio
+                        // --- 
+                        // let sound: Handle<AudioSource> = asset_server.load("sounds/asteroid_explosion.ogg");
+                        // commands.entity(asteroid_entity).insert((PlayAnimation(AnimatableAsset::Asteroid), AudioBundle {
+                        //     source: sound,
+                        //     settings: PlaybackSettings::ONCE
+                        // }));
+                        // commands.spawn(AudioBundle {
+                        //     source: sound,
+                        //     settings: PlaybackSettings::ONCE
+                        // });
+
+                        asteroid_explosion.send(AsteroidDestroyed);
 
                         asteroid.exploding = true;
                     }
@@ -715,7 +763,8 @@ fn explosion_event_listener(
                     
                     ship.invulnerable = true;
 
-                    commands.entity(ship_entity).insert(PlayAnimation(AnimatableAsset::Ship));
+                    // commands.entity(ship_entity).insert(PlayAnimation(AnimatableAsset::Ship));
+                    commands.entity(ship_entity).insert(PlayAnimation);
                 }
             }
         }
@@ -726,23 +775,14 @@ fn explosion_event_listener(
 
 fn play_animations(
     mut commands: Commands,
-    mut animatable_comp_query:  Query<(Entity, &mut TextureAtlas, Option<&mut Ship>, Option<&mut Asteroid>, Option<&mut Rocket>), With<PlayAnimation>>,
-    game_state_res: Res<GameState>,
+    mut animatable_comp_query:  Query<(Entity, &mut TextureAtlas, &mut AnimationProperties, Option<&mut Ship>, Option<&Asteroid>, Option<&Rocket>), With<PlayAnimation>>,
     time: Res<Time>,
 ) {
-
-    let game_state = game_state_res.as_ref();
-
-    if *game_state == GameState::GameOver || *game_state == GameState::Paused {
-        return;
-    }
-
-    for (entity, mut atlas, ship, asteroid, rocket) in animatable_comp_query.iter_mut() {
+    for (entity, mut atlas, mut animation, ship, asteroid, rocket) in animatable_comp_query.iter_mut() {
 
         if let Some(mut ship) = ship {
 
-            if ship.invulnerable_timer.elapsed_secs() == 0.0 {
-                // atlas.index += 1;
+            if animation.timer.elapsed_secs() == 0.0 {
 
                 println!("Inside if ship.invulnerable_timer.elapsed_secs() == 0.0");
 
@@ -762,10 +802,10 @@ fn play_animations(
                 }
             }
 
-            ship.invulnerable_timer.tick(time.delta());
+            animation.timer.tick(time.delta());
 
-            if ship.invulnerable_timer.finished() {
-                ship.invulnerable_timer.reset();
+            if animation.timer.finished() {
+                animation.timer.reset();
                 ship.invulnerable = false;
 
                 atlas.index = match ship.health {
@@ -785,7 +825,7 @@ fn play_animations(
                 commands.entity(entity).remove::<PlayAnimation>();
             } else {
 
-                let time_elapsed = ship.invulnerable_timer.elapsed_secs();
+                let time_elapsed = animation.timer.elapsed_secs();
 
                 // Basing this off the animation length being 1.0 seconds
                 // let show_nothing = 
@@ -822,35 +862,41 @@ fn play_animations(
 
         }
 
-        if let Some(mut asteroid) = asteroid {
+        if let Some(asteroid) = asteroid {
 
-            if !asteroid.exploding { return };
+            if !asteroid.exploding { 
+                return;
+                // asteroid.exploding = true;
+                // println!("*asteroid explosion noise*");
+                // println!("")
+                // commands.entity(entity).log_components();
+                // commands.entity(entity).insert(AudioBundle {
+                //     source: asset_server.load("sounds/asteroid_explosion.wav"),
+                //     settings: PlaybackSettings::ONCE
+                // });
+             };
         
-            asteroid.animation_timer.tick(time.delta());
+            animation.timer.tick(time.delta());
     
-            if asteroid.animation_timer.just_finished()  {
+            if animation.timer.just_finished()  {
                 commands.entity(entity).despawn();       
-            } else if atlas.index == asteroid.animation_indices.last  {
+            } else if atlas.index ==  animation.indices.last  {
                 atlas.index = atlas.index;
             } else {
                 atlas.index = atlas.index + 1;
             }
         }
 
-        if let Some(mut rocket) = rocket {
+        if let Some(rocket) = rocket {
             if rocket.hit_target { continue; }
-
-            // let time_remaining = rocket.animation_timer.remaining_secs();
-            // let delta = time.delta();
     
-            rocket.animation_timer.tick(time.delta());
+            animation.timer.tick(time.delta());
     
     
-            if rocket.animation_timer.finished() {
+            if animation.timer.finished() {
     
-            // atlas.index += 1;
-                atlas.index = if atlas.index == rocket.animation_indices.last {
-                    rocket.animation_indices.first
+                atlas.index = if atlas.index == animation.indices.last {
+                    animation.indices.first
                 } else {
                     atlas.index + 1
                 };
@@ -898,3 +944,25 @@ fn load_in_background(
     }
 }
 
+fn update_score(time: Res<Time>, mut score_tracker: ResMut<ScoreTracker>) {
+
+    if score_tracker.timer.tick(time.delta()).just_finished() {
+        *score_tracker.score_count += 1;
+        println!("Score: {}", score_tracker.score_count.0);
+    }
+}
+
+fn asteroid_destroyed(
+    mut asteroid_explosion: EventReader<AsteroidDestroyed>,
+    mut score_tracker: ResMut<ScoreTracker>,
+) {
+
+    if !asteroid_explosion.is_empty() {
+        println!("Asteroid destroyed");
+        for _ in 1..=asteroid_explosion.len() {
+            *score_tracker.score_count += 5;
+        }
+        asteroid_explosion.clear();
+    }
+
+}

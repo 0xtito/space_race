@@ -7,12 +7,11 @@ use crate::{
     Collider, 
     ColliderShape, 
     CollidableComponentNames,
-    Velocity,
     constants::*,
     AnimationIndices,
     AnimationTimer,
-    AnimationProperties,
-    PlayAnimation
+    PlayAnimation,
+    AnimationProperties
 };
 
 #[derive(PartialEq)]
@@ -27,8 +26,6 @@ pub enum ShipHealth {
 pub struct Ship {
     pub health: ShipHealth,
     pub invulnerable: bool,
-    pub invulnerable_timer: AnimationTimer,
-    pub animation_indices: AnimationIndices,
     pub cooldown_length: f32,
     pub cooldown_time_left: f32,
 }
@@ -54,14 +51,11 @@ impl Ship {
 
             self.cooldown_time_left = self.cooldown_length;
 
-            commands.spawn(rocket_bundle).insert(PlayAnimation(crate::AnimatableAsset::Rocket));
+            commands.spawn(rocket_bundle).insert(PlayAnimation);
         }
         
     }
     pub fn take_damage(&mut self) -> ShipHealth  {
-
-        // Testing
-        // self.health = ShipHealth::Empty;
 
         match self.health {
             ShipHealth::Full => {
@@ -93,6 +87,7 @@ pub struct ShipBundle {
     ship: Ship,
     sprite_bundle: SpriteSheetBundle,
     collider: Collider,
+    animation: AnimationProperties
 }
 
 impl ShipBundle {
@@ -117,8 +112,6 @@ impl ShipBundle {
             ship: Ship {
                 health: ShipHealth::Full,
                 invulnerable: false,
-                invulnerable_timer: AnimationTimer(Timer::from_seconds(2.0, TimerMode::Repeating)),
-                animation_indices,
                 cooldown_length,
                 cooldown_time_left: cooldown_length
             },
@@ -141,6 +134,10 @@ impl ShipBundle {
             collider: Collider {
                 name: CollidableComponentNames::Ship,
                 shape: ColliderShape::Circle
+            },
+            animation: AnimationProperties {
+                timer: AnimationTimer(Timer::from_seconds(2.0, TimerMode::Repeating)),
+                indices: animation_indices,
             }
         }
     }
@@ -151,8 +148,6 @@ impl ShipBundle {
 
 #[derive(Component, Debug)]
 pub struct Rocket {
-    pub animation_indices: AnimationIndices,
-    pub animation_timer: AnimationTimer,
     pub hit_target: bool
 }
 
@@ -201,6 +196,7 @@ impl Rocket {
 #[derive(Bundle)]
 pub struct RocketBundle {
     rocket: Rocket,
+    animation: AnimationProperties,
     sprite_bundle: SpriteSheetBundle,
     collider: Collider,
 }
@@ -222,8 +218,6 @@ impl RocketBundle {
             first: 0,
             last: 2
         };
-
-
 
         RocketBundle {
             sprite_bundle: SpriteSheetBundle {
@@ -247,10 +241,12 @@ impl RocketBundle {
                 shape: ColliderShape::Rectangle
             },
             rocket: Rocket {
-                animation_indices,
-                animation_timer: AnimationTimer(Timer::from_seconds(0.1, TimerMode::Repeating)),
                 hit_target: false
             },
+            animation: AnimationProperties {
+                timer: AnimationTimer(Timer::from_seconds(0.1, TimerMode::Repeating)),
+                indices: animation_indices
+            }
         }
     }
 }
