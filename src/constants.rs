@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::{
     math::{Vec2, Vec3}, 
     render::color::Color
@@ -29,6 +31,8 @@ pub const SHIP_APPLIED_SCALE: Vec3 = Vec3::new(1.5, 1.5, 1.0);
 
 
 pub const MAGNITUDE_FORCE: f32 = 1.5;
+
+
 
 // Asteroid
 pub const ASTEROID_GAME_WIDTH: f32 = 100.0;
