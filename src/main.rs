@@ -2,6 +2,11 @@ mod ship;
 mod asteroid;
 mod constants;
 mod wall;
+mod ui_plugin;
+mod ui_scaffold;
+
+use ui_plugin::OnPressed;
+use ui_scaffold::UiScaffoldPlugin;
 
 use std::time::Duration;
 
@@ -180,6 +185,8 @@ fn main() {
             ScreenFrameDiagnosticsPlugin,
             ScreenEntityDiagnosticsPlugin
         ))
+        // .add_plugins(bevy_framepace::FramepacePlugin)
+        .add_plugins(UiScaffoldPlugin)
         .insert_state(AppState::InGame)
         .configure_sets(Update, (
             MyGameSet.run_if(in_state(AppState::InGame)),
@@ -203,7 +210,6 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, (
             bevy::window::close_on_esc,
-            pause_game,
         ))
         .add_systems(Update, 
 
@@ -257,6 +263,10 @@ fn setup(
 
     // Spawn Ship
     let ship_texture = asset_server.load("ship/ship_spritesheet_empty_space.png");
+
+    let box_size = 2.0;
+    let box_thickness = 0.15;
+
     
     commands.spawn(
         ShipBundle::new(ship_texture, &mut texture_atlas_layouts,
@@ -278,31 +288,6 @@ fn setup(
         &mut texture_atlas_layouts,
         None
     ));
-
-}
-
-fn pause_game(
-    keyboard_input: Res<ButtonInput<KeyCode>>, 
-    state: Res<State<AppState>>,
-    mut next_state: ResMut<NextState<AppState>>,
-) {
-
-    if keyboard_input.just_pressed(KeyCode::KeyM) {
-        let game_state = state.get();
-
-        println!("Current Game State: {:?}", game_state);
-        match *game_state {
-            AppState::InGame => {
-                println!("Setting next state to Paused");
-                next_state.set(AppState::Paused);
-            },
-            AppState::Paused => {
-                println!("Setting next state to InGame");
-                next_state.set(AppState::InGame);
-            },
-            _ => {}
-        }
-    }
 
 }
 
