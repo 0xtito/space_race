@@ -1681,6 +1681,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "event_handler_macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.52",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3274,6 +3283,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_screen_diagnostics",
+ "event_handler_macro",
  "rand",
 ]
 
